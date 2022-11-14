@@ -1,0 +1,512 @@
+      Slpo - A Command Line Tool to Process or Parse Gettext Po-Files
+
+      Table of Contents:
+
+       1.     Description And Download Site
+       2.     Installation
+       3.     Requirements/Dependencies
+       
+       4.     Configuration
+       4.1.     Environment Variables
+       
+       5.     General Usage
+       5.1.     Output
+       5.2.     Multiple Files
+       
+       6.     Usage By Action
+       6.1.     Action: "apertium"
+       6.1.1.     Action: "apertium", example
+       6.2.     Action: "apertium-update"
+       6.2.1.     Action: "apertium-update", example
+       6.3.     Action: "apertium-update-fuzzy"
+       6.4.     Action: "exec"
+       6.4.1.     Action: "exec", example
+       6.5.     Action: "comp-add-file"
+       6.6.     Action: "comp-add-dir"
+       6.6.1.     Action: "comp-add-dir", example
+       6.7.     Action: "comp-init"
+       6.7.1.     Action: "comp-init", example
+       6.8.     Action: "replace-from-list"
+       6.9.     Action: "grep"
+       6.10.    Action: "diff"
+       6.11.    Action: "check-orto"
+       6.12.    Action: "replace"
+       6.12.1.    Action: "replace", example
+       6.13.    Action: "spellcheck"
+       6.14.    Action: "spellcheck-list"
+       6.15.    Action: "validate"
+       6.17.    Action: "po2ts"
+       
+       7.     Po-Mode For The Jed Editor
+       8.     Bug Reports, Suggestions
+       
+       
+                      1. DESCRIPTION AND DOWNLOAD SITE:
+                                
+Slpo can be downloaded from: http://mbjnet.dk/slpo/slpo.tar.gz
+
+Slpo generally (but not exclusively) works by isolating the translatable
+strings in a Gettext portable object message catalog file (*.po), before
+performing some action on them and then merging those strings back into the
+po-file. The command:
+
+   slpo -h
+
+will show the available options and actions.
+
+Other tools can do the same. Gettext has its "msgfilter" command, but the
+filter command is run once for every message in the po-file, making it
+prohibitively slow to use with e.g. apertium.  As an example, translating a
+small po-file with 169 strings, containing about one thousand words, takes
+148 seconds with Gettext's msgfilter command on my medium fast computer.
+With slpo it takes just 1 (one) second! Now imagine if the po-file contained
+tens of thousands of words!
+
+The program "pospell" can do the same and maybe even faster than slpo.
+However, it has bugs that at least slpo does not -- but slpo probably has
+other bugs.
+
+The collection of utilities that are contained in packages like pology and
+translate-toolkit may have tools to do the same?
+
+           
+                              2. INSTALLATION:
+                                
+
+a) Unpack the archive, it will be unpacked in the subdirectory, ./slpo:
+
+     tar -xf slpo.tar.gz
+
+b) Change to the slpo subdirectory and make the script executable:
+ 
+     cd slpo
+     chmod +x slpo
+  
+c) Copy it to a location in your $PATH, e.g. /usr/local/bin:
+
+     sudo cp slpo /usr/local/bin
+  
+   If you do not have administrative privileges, you can also run it from
+   e.g. your $HOME directory, but then you need to prefix it with a dot and
+   a slash:
+
+     ./slpo ...
+  
+d) Move the configuration file, "slpo.conf", to ".slpo.conf" Note the dot
+   before the destination file name. This file must reside in your $HOME
+   directory
+   
+     mv slpo.conf $HOME/.slpo.conf
+
+e) Edit the configuration file, ".slpo.conf", and enter your settings.
+   Explanatory comments are in the file.
+   
+
+The script is made for Linux or other compatible Unix-like systems but will
+also run on Windows in a Cygwin terminal.  The required packages mentioned
+in [3. REQUIREMENTS] must also be installed under Cygwin.
+
+  
+                              3. REQUIREMENTS:
+                    (Debian package names in parenthesis)
+                                
+- The SLang library (libslang2)
+  required
+
+- The SLang modules (libslang2-modules)
+  required
+
+- The S-Lang shell interpreter, slsh (slsh)
+  required
+
+- The file utility (file)
+
+- The aspell or hunspell spell checking programs (aspell, hunspell) plus
+  relevant dictionaries.  In addition to a dictionary in your own language,
+  it is recommended to also install an English dictionary.
+
+- The Apertium machine translation system (apertium)
+  plus relevant language pairs.
+  
+- The Gettext suite of programs (gettext)
+
+- The wdiff word difference utility (wdiff)
+
+- GNU parallel (parallel)
+
+- The text browser, elinks (elinks)
+
+- xmllint (libxml2-utils)
+
+Strictly speaking only slsh, the SLang library and the SLang modules are
+required.  If e.g. you do not want to use apertium to translate po-files,
+then of course you do not need to install apertium.
+
+                              4. CONFIGURATION:
+
+
+Slpo reads the configuration file $HOME/.slpo.conf, where you can enter your
+settings.  Only the setting "Apertium_Langs" needs to be set if you want to
+use Apertium.  All the other settings should be set automatically from the
+environment.  But in case something is amiss with your environment, then you
+can use this file to specify your settings.
+
+                         4.1. Environment variables:
+
+Slpo reads the environment variables, SLPOCOMP and APERTIUM_LANGS.  The
+former sets the compendium to use and the latter sets the apertium language
+pair to use.  You can use these as ad hoc settings in commands, as they will
+override the settings in the configuration file. See under [6.1.1.]
+
+
+                              5. GENERAL USAGE:
+                                    
+The command line syntax is:
+
+  slpo  [option] <ACTION> [ACTION args] [INPUTFILE]
+
+If INPUTFILE is entered as a dash "-" then the script will read from
+standard input and thus can be used in a command pipe.
+
+                                5.1. Output:
+
+The original file will never be silently overwritten, rather the result is
+written to standard output by default (the terminal, unless redirected).
+Use the "-o" option to specify a file where the output should be saved.
+Instead of the "-o" option the redirector symbol ">" can also be used,
+however, the "-o" option should be preferred since it issues a warning about
+overwriting a possibly already existing file of the same name.
+
+                            5.2. Multiple Files:
+
+You can use globbing patterns to work on multiple files.  If you have
+installed GNU parallel, it will be used to speed up the process
+significantly.  When using GNU parallel a log of its jobs will be saved in
+the file "slpo-jobs" in the directory in which you executed the command.  In
+this log the exit values of each job are printed, so you could e.g. 
+validate a directory containing a lot of po-files with:
+
+  slpo validate directory-with-pofiles/*.po
+
+and then check the log to see which files did not validate.
+                                
+
+                             6. USAGE BY ACTION:
+
+All action names also have short hand forms, e.g. "cf" can be used instead
+"comp-add-file".  See the output from slpo -h
+                               
+                           6.1. Action: "apertium"
+
+Will translate the msgstrs of a po-file with the machine translation system,
+Apertium.  The language pair (from-to) can be specified in the configuration
+file or in the environment variable "APERTIUM_LANGS".  If translating from
+English to some other language, then untranslated strings will be filled out
+with the original English message strings (msgid) first.
+
+                     6.1.1. Action: "apertium", example
+
+- Translate "file.po", with Apertium and write the result to
+ "file-translated.po", assuming that the language pair was specified in the
+  configuration file:
+
+    slpo -o file-translated.po apertium file.po
+  
+- The same using the environment variable APERTIUM_LANGS to specify the
+  language pair:
+
+    APERTIUM_LANGS=en-es slpo -o file-translated.po apertium file.po
+
+                       6.2. Action: "apertium-update"
+
+Will transfer and translate with Apertium the message strings from a
+reference file to a definition file.  Only untranslated entries in the
+definition file are processed
+
+                 6.2.1. Action: "apertium-update", example
+
+- Say, that there is a partially translated Danish message catalog, "da.po"
+  (the definition file) and there is a Swedish translation of the same
+  message catalog, "sv.po" (the reference file) which is more updated. You
+  would like to transfer to "da.po" the translated entries from "sv.po" that
+  are untranslated in "da.po" and then translate them from Swedish into
+  Danish before merging them into "da.po. Result is written to
+ "da-updated.po":
+
+    APERTIUM_LANGS=swe-dan slpo -o da-updated.po apertium-update da.po sv.po
+
+  All such translations will be marked "fuzzy" so that they can easily be
+  distinguished from your existing translations.
+
+                    6.3. Action: "apertium-update-fuzzy"
+                         
+Same as apertium-update but also transfer and translate fuzzy entries (if
+any) from the reference file.
+
+                             6.4. Action: "exec"
+                                       
+Will run any arbitrary command on the msgstrs of a po-file. 
+
+                       6.4.1. Action: "exec", example
+                   
+The action "apertium" defaults to "apertium <lang-pair> -u < <file>" You
+could use the action "exec" to specify other arguments to apertium. E.g.
+translate a file, "fr.po", from French into Spanish and then from Spanish
+into Catalan and write result to "ca-translated.po".  Also mark unknown
+words and display ambiguity with apertium:
+  
+  APERTIUM_LANGS=fr-es slpo apertium fr.po | \
+  slpo exec "apertium -a es-ca" - > ca-translated.po
+
+  (note the double quotes around the arguments to the "exec" action and
+  note the dash after the action arguments to signify input from stdin)
+  
+                        6.5. Action: "comp-add-file"
+                         
+Will add a po-file to the compendium.  You will be asked if you want to mark
+all translations "immutable".  Answering yes will ensure that those
+translations will not be overwritten when updating the compendium later. 
+You can also edit the compendium directly in an editor and modify
+translations that you don't like and then append an "@" to them right after
+the final double quote of the msgstr.  The "@" is the "immutable"-tag. This
+is an example of such an entry from a compendium:
+
+   msgid "A component of path is not a directory"
+   msgstr "En del af stien er ikke et filkatalog"@
+   
+Note the "@" right at the end of the msgstr.   
+
+                         6.6. Action: "comp-add-dir"
+
+Will create a compendium from a directory of po-files.  The directory may
+contain other files than po-files.  Only the po-files will be selected.  The
+compendium will also be very clean, containing only unique original strings
+and their translations and no comments.  You can control which translations
+you want to keep in the compendium. See: [6.5 Action: "comp-add-file].
+
+                   6.6.1. Action: "comp-add-dir", example
+
+Create a compendium from all po-files in a directory.  You can e.g. download
+a lot from the Free Translation Project.  This command will download all the
+Japanese po-files from there:
+  
+  wget -r -nH --no-parent --reject "index.html*" \
+  http://translationproject.org/PO-files/ja/
+    
+  The files will be saved under ./PO-files/ja/
+  Then create the compendium from those files:
+  
+    slpo comp-add-dir ./PO-files/ja
+    
+  By default the compendium will be created under the name
+  $HOME/.slpo_compendium.  Use the environment variable SLPOCOMP to shift
+  between different compendia.
+  
+  The encoding of the files will be converted to that of your environment
+  before being written to the compendium.
+
+                          6.7. Action: "comp-init"
+                         
+Translate entries in a po-file with translations of corresponding original
+strings (msgids) from a compendium file.
+
+                    6.7.1. Action: "comp-init", example
+                         
+Say, that you have two compendium files, one is called ".slpo.tp" containing
+translations from The Free Translation Project (see: 6.6.1.) and another
+file called ".slpo.kde" that contains translations from a lot of KDE
+po-files.  You want to translate "kdefile.pot" and so you want to give
+precedence to the translations contained in the compendium, ".slpo.kde",
+while at the same time also using the translations from the
+compendium,".slpo.tp".  Output is saved in "kdefile.po":
+
+ 1) SLPOCOMP=$HOME/.slpo.kde slpo -o kdefile.po comp-init kdefile.pot
+ 2) SLPOCOMP=$HOME/.slpo.tp slpo -o kdefile.po comp-init kdefile.po
+
+when in the last run, using ".slpo.tp" as the compendium, you will be asked
+if you want to overwrite the entries already translated with ".slpo.kde".
+Just answer "no" to that.
+
+                      6.8. Action: "replace-from-list"
+                      
+This is just a simple function that will let you replace words or strings in
+a po-file with other words or strings from a file.  Every line in this file
+must adhere to the following format:
+
+   word or string to be replaced : word or string replacement
+   
+i.e. words/strings and their replacements listed pairwise in the file and
+separated by a colon, each on a line by itself.  The whitespace around the
+colon does not matter.  PCRE style regular expressions in the search string
+is supported, assuming that GNU sed (which is used) was compiled with
+libpcre.  That means you can you can have lines in the replacement file that
+e.g. look like this:
+
+  a) \b<searchpat>\b:<replacement>
+  b) \b<searchpat>:<replacement>
+  c) <searchpat>\b:<replacement>
+
+a) replaces <searchpat> only if it is not part of another word, i.e. if it
+   is a whole word.
+b) replaces <searchpat> if it forms the beginning of another word.
+c) replaces <searchpat> if it forms the end of another word.
+
+And of course you can specify any other pcre regular expression in the
+search patterns.
+
+If your own language has a very closely related language, the way for
+instance Danish and Norwegian are very closely related, then if you were a
+Norwegian translator you could have a file with a lot Danish words/strings
+and their Norwegian translations and then run Danish po-files through this
+function thus taking care of some routine work in advance.
+
+                             6.9. Action: "grep"
+                             
+Grep for a search pattern in a po-file and write matching entries to
+standard output.  Search matches will be highlighted in the output.  PCRE
+style regular expressions are supported.  E.g. if you only want to match
+whole words and not parts of words, then you could use
+
+   slpo grep "\b<word or string>\b" <po-file>
+
+As shown, if the search pattern contains shell expandable characters like
+e.g. "*" or "\", you must enclose them in double quotes or escape them with
+'\'.
+
+For the most common matching options such as case sensitivity or matching on
+word boundary, these switches can be used
+ 
+  -i case insensitive matching
+  -w match whole words only
+
+Matching can also be done on individual elements of the entry.  Those
+elements with their corresponding options to the grep action are:
+
+  -c all comments
+  -d msgid
+  -s msgstr
+  -t msgctxt
+  -u translator's comment
+  -x extracted comments
+  
+so the command line
+
+  slpo grep -i -w -d options file.po
+  
+will return all entries that match the whole case insensitive word "options"
+and only in the msgids of the file, "file.po"
+
+Without any options to grep, matching is done in the entire entry.
+  
+
+                            6.10. Action: "diff"
+                             
+This action will write out the differences between two po-files in an
+easy-to-read format.  It is handy if you are sending translation updates of
+the same file regularly to the mailing list of your language team for
+review.  Then they only need to review what had changed since the last time.
+                             
+                         6.11. Action: "check-orto"
+                         
+This will spot mismatces in case between the first letters of msgid and
+msgstr as well as spot differences in end punctuation between msgid and
+msgstr and also spot differences in number of begin and end blanks between
+msgid and msgstr.  Such entries will be marked "fuzzy".
+
+                         6.12. Action: "replace"
+                         
+This will search for words or strings in a po-file and replace them with
+others, with the expressions given on the command line.  PCRE style regular
+expressions are supported.
+
+                     6.12.1. Action: "replace", example
+                     
+By default matching is case sensitive and will also match substrings.  Say,
+you want case insensitive matching of whole words only.  In this case you
+want to replace [Ff][Oo][Oo] with BAR in file.po:
+
+  slpo replace "(?i)\bFOO\b" BAR file.po
+
+Note the double quotes around the search pattern.
+
+Another example replacing o.k. with OK in multiple files with
+GNU parallel and saving modified files in *.changed.po
+
+  ls podir/*.po | parallel --joblog=slpo-jobs -j+0 --eta \
+  'slpo replace "(?i)o\.k\." OK {} >{.}.changed.po'
+
+It will also write a joblog, "slpo-jobs" where you can check if the
+command failed on some files.
+
+Have a look at "http://pcre.org/pcre.txt" for an explanation of the pcre
+syntax.
+
+                         6.13. Action: "spellcheck"
+                         
+This will use the spell checking program's interactive interface to spell
+check the msgstrs of a po-file.
+
+                       6.14. Action: "spellcheck-list"
+                       
+Load a list of misspelled words in the msgstrs of a po-file into an editor
+and from that list remove words that should not either be corrected or
+included in the personal wordlist of the spell checking program.  Then save
+this temporary file and exit the editor.  From the resulting prompts either
+type in the corrected word to have it replaced throughout the msgstrs of the
+po-file or if the word was indeed correctly spelled but unknown to the
+spelling dictionary, then simply hit <enter> to add it to the personal
+wordlist.  The latter will ensure that the word will not be seen as
+misspelled in the future. Arrow up will push the misspelled word onto the
+editing field.
+
+For both actions "spellcheck" and "spellcheck-list" you should specify an
+output file with the "-o" option, otherwise your changes will just be
+written to the terminal.
+                         
+                          6.15. Action: "validate"
+                         
+This is just a wrapper around Gettext's msgfmt command.  However, it has the
+added feature of flagging error entries "fuzzy" and write the resulting
+po-file to standard output.  If the po-file contains no errors, just the
+statistics will be written out.
+
+                            6.17. Action: "po2ts"
+                          
+This will attempt to translate a QT *.ts file from a po-file.
+
+
+                        7. PO-MODE FOR THE JED EDITOR
+                        
+All the functions in this script are a subset of the functions found in the
+po-mode for the Jed editor.  It can be downloaded from:
+
+   http://mbjnet.dk/po-mode/
+   
+The Jed editor homepage is at:
+
+   http://jedsoft.org/jed/
+
+
+                          BUG REPORTS, SUGGESTIONS:
+                          
+
+You are welcome to send them to:
+
+  Morten Bo Johansen <mbj@mbjnet.dk>
+
+If a bug report, then please make sure that the po-file where slpo failed
+validates cleanly:
+
+  slpo validate <errorfile.po>
+
+Then run the command:
+
+  slpo -o slpoinfo bugreport
+
+which will collect information about your environment and save it in the
+file "slpoinfo".  Then attach this file and the offending po-file to your
+report along with a description of the error.
+
+                                  --------
+
+$Id: README.slpo,v 1.4 2017/07/24 18:06:45 mojo Exp mojo $

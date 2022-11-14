@@ -1,0 +1,2746 @@
+#!/usr/bin/env slsh
+% slpo - an S-Lang script with various utility functions to process or
+% parse Gettext po-files.
+% 
+% Author: Morten Bo Johansen <mbj@mbjnet.dk>
+% License: http://www.fsf.org/copyleft/gpl.html
+% Thanks to John E. Davis for helping with the user interface.
+% 
+% Installation: Make this script executable - chmod +x slpo and copy
+% it to e.g. /usr/local/bin or some other location in your $PATH.
+% require ("sldb");
+% sldb ("/home/mojo/slpo/slpo");
+% sldb_enable ();
+
+_debug_info=1;_traceback=1;
+% require ("stkcheck");
+% enable_stack_check ();
+require ("pcre");
+require ("cmdopt");
+require ("rand");
+
+% Variabes used in the user configuration file
+variable 
+Apertium_Langs = "",
+  Editor = "",
+  Spell_Prg = "",
+  Encoding = "",  
+  LangCode = "",  
+  CountryCode = "",
+  Fuzzy_Orto_Corrected = 1;
+
+private variable
+SLpo_Compendium = strcat (getenv ("HOME"), "/.slpo_compendium"),
+  Conf_File = strcat (getenv ("HOME"), "/", ".slpo.conf"),
+  Str_Del_Pat = "^\\w%/()=\\",
+  Entry,
+  Obsolete,
+  Version = "0.4.6",
+  Wrap = 79,
+  Multi_Line = 0;
+
+private define print_help_and_exit ()
+{
+  variable prg = path_basename (__argv[0]), options, opt;
+  
+  () = printf ("Usage: $prg [option] <ACTION> [ACTION args] [INPUTFILE]\n\n"$);
+  () = printf (" (If INPUTFILE is given as \"-\" then read from stdin)\n");
+  
+  options = 
+    [
+     "\nOptions:",
+     "-h, --help\n\tPrint this help message",
+     "-v, --version\n\tPrint version and licence information",
+     "-o, --output-file <file>\n\tWrite output to file",
+     "\nActions:",
+     "a,  apertium <po-file>\n\tTranslate file w/Apertium, the machine translation system",
+     "au, apertium-update <def> <ref>\n\tTranslate untranslated entries in \"def\" w/apertium-translated strings from \"ref\"",
+     "af, apertium-update-fuzzy <def> <ref>\n\tLike apertium-update but also keep and translate fuzzy entries from \"ref\"",
+     "b,  bugreport \n\tGet information for a bug report",
+     "c,  check-orto <po-file>\n\tCheck for and correct mismatch in case and end punctuation between msgid and msgstr",
+     "\tas well as differences in number of begin and end blanks between msgid and msgstr",
+     "d,  diff <oldfile> <newfile>\n\tShow differences between two po-files in an easy-to-read format.",
+     "e,  exec <cmd> <po-file>\n\tRun an external cmd on the msgstrs of a po-file",
+     "g,  grep [-c|-d|-s|-u|-t|-x] <regexp> <po-file>\n\tGrep for a search pattern in selected elements of a po-file",
+     "\t-c: all cmts, -d: msgid, -s: msgstr, -t: msgctxt, -u: user cmt, -x: extracted cmt",
+     "ts, po2ts <po-file> <ts-file>\n\tTranslate a QT *.ts file from a po-file",
+     "r,  replace <old string> <new string> <po-file>\n\tReplace a word/string with another in the msgstrs",
+     "rl, replace <listfile> <po-file>\n\tReplace words/strings in file with words/strings from listfile",
+     "s,  spellcheck <po-file>\n\tSpell check po-file w/spell prg's interactive interface",
+     "sl, spellcheck-list <po-file>\n\tSpell check po-file from a list of misspelled words",
+     "v,  validate <po-file>\n\tValidate a po-file w/Gettext's msgfmt",
+     "ws, word-stats <po-file>\n\tCollect statistics about occurences of words in a po-file",
+     "cf, comp-add-file <po-file>\n\tAdd a file to the compendium",
+     "cd, comp-add-dir <dir w/po-files>\n\tAdd a whole directory of po-files to the compendium",
+     "ci, comp-init <po-file>\n\tInitialize a po-file w/translations from compendium",
+    ];
+  
+  foreach opt (options)
+    () = fprintf (stderr, " %s\n", opt);
+  
+  exit (1);
+}
+
+private define exit_error (msg)
+{
+  () = fprintf (stderr, "\e[31m\n  %s\n\n\e[0m", msg);
+  exit (1);
+}
+
+% Import settings from the user configuration file
+private define read_config ()
+{
+  variable line, lines, fp;
+  
+  ifnot (NULL == stat_file (Conf_File))
+  {     
+    fp = fopen (Conf_File, "r");
+    lines = fgetslines (fp);
+    () = fclose (fp);
+  }
+  else return;
+  
+  lines = array_map (String_Type, &strtrim, lines);
+  lines = lines [where (0 != array_map (Int_Type, &strncmp, "#", lines, 1))];
+  lines = lines [where (array_map (Int_Type, &strlen, lines))];
+  
+  try
+  {
+    foreach line (lines)
+      eval (strcat ("variable ", line, ";"));
+  }
+  catch AnyError:
+  {
+		() = fprintf (stderr, "\e[31mError in $Conf_File\e[0m\n"$);
+		fflush (stderr);
+  }
+}
+
+%% Catch output from a system cmd in a string.
+private define syscmd_output_to_string ()
+{
+  variable e, str = "", fp, cmd = "";
+  
+  cmd = ();
+  fp = popen (cmd, "r");
+  
+  if (fp == NULL)
+    exit_error ("could not open pipe to process");
+  
+  str = strjoin (fgetslines (fp), "");
+  e = pclose (fp);
+  str = strtrim (str);
+  return (str, e);
+}
+
+%% Get the language/country code and charset from the enviroment,
+private define get_locale_info ()
+{
+  variable locale = "", lang = "", country = "", var = "";
+  variable lang_COUNTRY = pcre_compile ("[a-z]{2}_[A-Z]{2}");
+  variable encoding = pcre_compile ("\\..*$");
+  
+  
+  % try the three enviroment variables in prioritized succession
+  foreach var (["LC_MESSAGES", "LANG", "LC_ALL"])
+  {
+    ifnot ((NULL == getenv (var)) || (0 == strlen (getenv (var))))
+      locale = getenv (var);
+    
+    if (pcre_exec (lang_COUNTRY, locale))
+    {
+      lang_COUNTRY = pcre_nth_substr (lang_COUNTRY, locale, 0);
+      break;
+    }
+  }
+  
+  try
+  {
+    lang = lang_COUNTRY[[0:1]];
+    country = lang_COUNTRY[[3:4]];
+  }
+  catch IndexError:
+    exit_error ("could not get locale info");
+  
+  if (pcre_exec (encoding, locale))
+  {
+    encoding = pcre_nth_substr (encoding, locale, 0);
+    encoding = strtrim (encoding, ".\"");
+  }
+  else
+    encoding = "utf-8";
+  
+  return lang_COUNTRY, lang, country,  encoding;
+}
+
+%% Return a file as a string
+private define file_as_str (file)
+{
+  variable str = "", fp;
+  
+  fp = fopen (file, "r");
+  
+  if (fp == NULL)
+    exit_error ("could not open \"$file\""$);
+  
+  str = strjoin (fgetslines (fp), "");
+  () = fclose (fp);
+  return str;
+}
+
+%% Replace a string w/another based on a regular expression.
+private define pcre_replace (str, pat, rep)
+{
+  variable begstr = "", endstr = "", matchstr = "", match, enc, pos = 0;
+  
+  (,,,enc) = get_locale_info ();
+  
+  try
+  {
+    if (enc == "utf-8")
+      pat = pcre_compile (pat, 0x20000000|PCRE_UTF8);
+    else
+      pat = pcre_compile (pat);
+  }
+  catch ParseError:
+    exit_error ("Invalid regular expression");
+  
+  while (pcre_exec (pat, str, pos))
+  {
+    match = pcre_nth_match (pat, 0);
+    begstr = str[[0:match[0]-1]];
+    endstr = str[[match[1]:]];
+    str = strcat (begstr, rep, endstr);
+    pos = match[0] + strbytelen (rep);
+  }
+  
+  return str;
+}
+
+%% Parse po-file for translated entries
+private define has_translated (file)
+{
+  variable str, pat, startpos;
+  
+  str = file_as_str (file);
+  pat = "[^#~ ]+msgstr\\[?[0-9]?\\]? (\"\"\n\"|\"[^\"]+)";
+  startpos = string_match (str, "\n\n", 1); % skip header
+  
+  pat = pcre_compile (pat);
+  return pcre_exec (pat, str, startpos);
+}
+
+%% Construct a random name for a temporary file
+private define make_tmp_file (name)
+{
+  variable pid = getpid (), rand = rand_int (1, 100000);
+  return sprintf ("%s%d%d%d", name, pid, _time, rand);
+}
+
+%% Collect information for a bug report
+private define get_bugreport_info ()
+{
+  variable lines = {};
+  variable prg_with_path, slsh_ver, env_vars, conf_file, info, slpo_ver;
+  variable prgs = ["slsh","slpo","apertium","file","aspell","hunspell",
+                   "msgcat","wdiff","diff","parallel"];
+  
+  foreach (prgs)
+  {
+    variable prg = ();
+    (prg_with_path,) = syscmd_output_to_string ("which $prg"$);
+    list_append (lines, "$prg is: $prg_with_path"$);
+  }
+  
+  list_insert (lines, "\tPrograms:\n\n", 0);
+  (env_vars,) = syscmd_output_to_string ("env | egrep \"EDITOR|VISUAL|LC.*" +
+                                         "|LANG.*|SLPO.*|DICTIONARY" +
+                                         "|Apertium.*|SLSH.*\"");
+  
+  list_append (lines, strcat ("\n\tEnvironment:\n\n", env_vars));
+  (slsh_ver,) = syscmd_output_to_string ("slsh --version");
+  list_append (lines, strcat ("\n\tSlsh:\n\n", slsh_ver));
+  (slpo_ver,) = syscmd_output_to_string ("slpo --version | head -1");
+  list_append (lines, strcat ("\n\tSlpo:\n\n", slpo_ver));
+  lines = list_to_array (lines);
+  info = strjoin (lines, "\n");
+  
+  ifnot (NULL == stat_file (Conf_File))
+  {
+    conf_file = file_as_str (Conf_File);
+    info = strcat (info, "\n\n\tslpo.conf:\n\n", conf_file);
+  }
+  else
+    info = strcat (info, "\n\n\tslpo.conf:\n\n", "No configuration file found");
+  
+  return info;
+}
+
+%% Return po-file as two arrays consisting of current and obsolete
+%% entries respectively.
+private define po2arr (str)
+{
+  variable str_arr, current, obsolete;
+  
+  str = strtrim (str);
+  str = strreplace (str, "\v", "");
+  str = strreplace (str, "\n\n", "\v");
+  str_arr = strchop (str, '\v', 0);
+  str_arr = str_arr[where (array_map (Int_Type, &strlen, str_arr))];
+  obsolete = array_map (Int_Type, &string_match, str_arr, "#~ msgid", 1);
+  obsolete = where (obsolete, &current);
+  current = str_arr[current];
+  Obsolete = str_arr[obsolete];
+  
+  ifnot (length (current))
+    exit_error ("no valid entries");
+  
+  return (current, Obsolete); % two arrays
+}
+
+private define file_type (file, type)
+{
+  variable st = stat_file (file);
+  
+  if (st == NULL)
+    return 0;
+  
+  return stat_is (type, st.st_mode);
+}
+
+%% The library function from jed
+private define search_path_for_file ()
+{
+  variable path, f, delim = path_get_delimiter ();
+  
+  if (_NARGS == 3)
+    delim = ();
+  
+  (path, f) = ();
+  
+  if (path == NULL)
+    return NULL;
+  
+  foreach (strtok (path, char(delim)))
+  {
+    variable dir = ();
+    variable file = strcat (dir, "/", f);
+    
+    if (file_type (file, "reg"))
+      return file;
+  }
+  
+  return NULL;
+}
+
+%% Return a program in $PATH.
+private define check_for_prg (prg)
+{
+  variable path = getenv ("PATH"), res;
+  
+  res = search_path_for_file (path, prg);
+  
+  if (res == NULL)
+    exit_error ("$prg is not installed"$);
+  
+  return res;
+}
+
+private define check_for_file (file, type)
+{
+  ifnot (file_type (file, type))
+    exit_error ("\"$file\" not found or is the wrong type"$);
+}
+
+private define write_string_to_file (str, file)
+{
+  variable fp = fopen (file, "w");
+  
+  if (fp == NULL)
+    exit_error ("Could not open $file"$);
+  
+  if ((-1 == fputs (str, fp)) || (-1 == fclose (fp)))
+    exit_error ("Error writing to $file"$);
+}
+
+private define get_charset_from_header (file)
+{
+  variable entries, header, header_charset = "", charset_pat = "";
+  
+  ifnot (file_type (file, "reg"))
+    exit_error ("$file not found or is not a file"$);
+  
+  (entries,) = po2arr (file_as_str (file));
+  header = entries[0];
+  charset_pat = pcre_compile ("charset=(.*)\\\\n");
+  
+  if (pcre_exec (charset_pat, header))
+    header_charset = pcre_nth_substr (charset_pat, header, 1);
+  
+  return strlow (header_charset);
+}
+
+%% Return all the encodings known to iconv(1) as an array
+private define get_known_encodings ()
+{
+  variable encodings;
+  (encodings,) = syscmd_output_to_string ("iconv -l");
+  encodings = strreplace (encodings, "/", "");
+  encodings = strlow (encodings);
+  return strchop (encodings, '\n', 0);
+}
+
+%% Use the file(1) program to determine the encoding
+private define get_file_encoding (file)
+{
+  variable prg = check_for_prg ("file");
+  variable cmd = "", output = "", filestr = "";
+  variable tmpfile = make_tmp_file ("/tmp/get_file_encoding");
+  
+  check_for_file (file, "reg");
+  
+  %% remove all control characters as they make file(1) see
+  %% the file as "binary"
+  filestr = str_delete_chars (file_as_str (file), "\\c");
+  write_string_to_file (filestr, tmpfile);
+  cmd = "$prg -i $tmpfile 2>/dev/null"$;
+  (output,) = syscmd_output_to_string (cmd);
+  () = remove (tmpfile);
+  return strchop (output, '=', 0)[1];
+}
+
+private define replace_header_charset (file, enc)
+{
+  variable str = file_as_str (file);
+  str = pcre_replace (str, "\"Content-Type: text/plain; charset.*[^\"]+",
+                      "\"Content-Type: text/plain; charset=$enc\\n\"\n"$);
+  return str;
+  
+}
+
+%% Convert to user's preferred character set.
+private define conv_charset (file)
+{
+  variable filestr = "", filenc = "",  enc = "", cmd = "", e = 0;
+  variable tmpfile = make_tmp_file ("conv_charset");
+  variable conv = check_for_prg ("iconv");
+  
+  EXIT_BLOCK
+  {
+    () = remove (tmpfile);
+  }
+  
+  ifnot (file_type (file, "reg"))
+    return 1;
+  
+  filenc = get_charset_from_header (file);
+  
+  ifnot (strlen (filenc))
+    filenc = get_file_encoding (file);
+  
+  ifnot (any (filenc == get_known_encodings))
+    filenc = get_file_encoding (file);
+  
+  (,,,enc) = get_locale_info ();
+  
+  if ((strlow (filenc) == strlow (enc)) || (filenc == "us-ascii"))
+    return 1;
+  
+  () = fprintf (stderr, "recoding %s ...\n", path_basename (file));
+  () = fflush (stderr);
+  e = system ("$conv -o $tmpfile -c -f $filenc -t $enc $file 2>/dev/null"$);
+  
+  ifnot(e == 0)
+  {
+    () = fprintf (stderr, "$conv failed, try to validate\n");
+    () = fflush (stderr);
+    return 0;
+  }
+  
+  filestr = replace_header_charset (tmpfile, enc);
+  write_string_to_file (filestr, file);
+  () = fprintf (stderr, "File succesfully recoded from $filenc to $enc\n"$);
+  () = fflush (stderr);
+  return 1;
+}
+
+%% Look for a program from an array of programs and return the first
+%% one found.
+private define find_prgs_use_first (prgs)
+{
+  variable prg, prgs_arr = strtok (prgs), path = getenv ("PATH");
+  
+  prgs_arr = prgs_arr[wherenot (_isnull (array_map (String_Type,
+                                                    &search_path_for_file, 
+                                                    path, prgs_arr)))];
+  ifnot (length (prgs_arr))
+    exit_error ("Error: You must install one of $prgs"$);
+  else
+    prg = prgs_arr[0];
+  
+  return prg;
+}
+
+private define get_y_n (msg)
+{
+  variable a;
+  
+  () = printf ("\n  $msg? [y/n] "$);
+  () = fgets (&a, stdin);
+  
+  return ("y" == strlow (strtrim (a)));
+}
+
+%% Return an entry as an array of its elements, comments, msgids, msgstrs ..
+private define strchop_entry (entry)
+{
+  variable entry_arr;
+  
+  entry = strreplace (entry, "\v", "");
+  entry = strreplace (entry, "\nmsg", "\vmsg");
+  entry_arr = strchop (entry, '\v', 0);
+  return array_map (String_Type, &strtrim, entry_arr);
+}
+
+private define pcre_string_match (str, pat)
+{
+  try
+    pat = pcre_compile (pat);
+  catch ParseError:
+    exit_error ("Invalid regular expression");
+  
+  return pcre_exec (pat, str);
+}
+
+%% Align the lengths of two string arrays 
+private define array_align_length (a, b)
+{
+  variable ldiff = length (a)-length (b);
+  variable padarr;
+  
+  if (ldiff == 0) return a, b;
+  if (ldiff < 0)
+    padarr = String_Type[-ldiff];
+  else
+    padarr = String_Type[ldiff];
+  
+  padarr[*] = "";
+  
+  if (ldiff < 0) 
+    a = [a, padarr];
+  else
+    b = [b, padarr];
+  
+  return a, b;
+}
+
+%% Return the end character of a string.
+private define end_char (str)
+{
+  return substr (str, strlen (str), strlen (str));
+}
+
+private define str_is_multiline (str)
+{
+  return ((is_substr (str, "\\n")) || 
+          (pcre_string_match (str, "^msgid \"\"$")));
+}
+
+%% Trim chars from each end of a string.
+private define trim_chars (str, beg, end)
+{
+  return str[[beg:strbytelen (str)-1-end]];
+}
+
+%% Count the number of lines in a string.
+private define lines_count (str)
+{
+  return length (strchop (strtrim (str), '\n', 0));
+}
+
+private define str_has_end_newline (str)
+{
+  return ((str[[-3:]] == "\\n\"") || (str == "msgid \"\""));
+}
+
+%% Trim the two single outermost double quotes from each line
+private define trim_quotes (str)
+{
+  str = strchop (str, '\n', 0);
+  str = array_map (String_Type, &trim_chars, str, 1, 1);
+  return strjoin (str, "\n");
+}
+
+%% Envelop all lines in a string array in double quotes.
+private define surround_in_quotes (str)
+{
+  str = strchop (str, '\n', 0);
+  str = str [where (array_map (Int_Type, &strlen, str))];
+  str = array_map (String_Type, &strcat, "\"", str, "\"");
+  return strjoin (str, "\n");
+}
+
+%% Separate the keyword ("msgid", "msgstr") from the string proper
+private define sep_kw_and_str (str)
+{
+  variable keyword = extract_element (str, 0, ' ');
+  
+  if (string_match (str, "\"\"\n\"", 1))
+    str = str[[strlen (keyword)+4:]];
+  else
+    str = str[[strlen (keyword)+1:]];
+  
+  return (keyword, str);
+}
+
+%% Concatenate the keyword ("msgid", "msgstr") with the string proper
+private define concat_kw_str (kw, str)
+{
+  if ((strlen (kw + str) > Wrap) || (lines_count (str) > 1))
+    return strcat (kw, " \"\"\n", str);
+  
+  return strcat (kw, " ", str);
+}
+
+%% Return po-files in a directory.
+private define pofiles_in_dir (dir)
+{
+  variable files, exts, po_files, po_matches;
+  
+  ifnot (file_type (dir, "dir"))
+    exit_error ("$dir does not exist"$);
+  
+  dir = strtrim_end (dir, "/");
+  files = listdir (dir);
+  files = array_map (String_Type, &strcat, dir, "/", files);
+  files = files[where (array_map (Int_Type, &file_type, files, "reg"))];
+  exts = array_map (String_Type, &path_extname, files);
+  po_matches = where (exts == ".po");
+  po_files = files[po_matches];
+  
+  return po_files;
+}
+
+%% Gettext-like wrapping. Lines are wrapped with trailing blanks.
+private define po_wrap_str (str)
+{
+  variable wrappoint = Wrap, i = 0, wrappoint_prev = 0, line;
+  variable lines = {};
+  
+  ifnot (strbytelen (str) > Wrap) 
+    return str;
+  
+  str = strreplace (str, "\n", "");
+  
+  _for i (0, strbytelen (str)-1, 1)
+  {
+    if (str[i] != ' ' && i > wrappoint)
+    {
+      while (str[i] != ' ' && i >= 0) i--;
+      line = str[[wrappoint_prev:i]];
+      list_append (lines, line);
+      wrappoint_prev = i + 1;
+      wrappoint = i + Wrap;
+    }
+  }
+  
+  list_append (lines, str[[wrappoint_prev:]]);
+  str = list_to_array (lines);
+  return strjoin (str, "\n");
+}
+
+%% Prepare the msgstr for processing.
+private define prep_str (str)
+{
+  variable kw = "";
+  
+  (kw, str) = sep_kw_and_str (str);
+  str = trim_quotes (str);
+  
+  variable str_arr = strchop (str, '\n', 0);
+  
+  str_arr = str_arr [where (array_map (Integer_Type, &strlen, str_arr))];
+  str = strjoin (str_arr, "\n");
+  str = strreplace (str, "\\\"", "\"");
+  Multi_Line = str_is_multiline (str);
+  
+  if (Multi_Line)
+  {
+    str = str_delete_chars (str, "\n");
+    str = strreplace (str, "\\n", "\n");
+  }
+  
+  return kw, str;
+}
+
+%% The formatting of the msgstr after processing has finished.
+private define post_prep_str (str)
+{
+  variable str_arr, i = 0;
+  
+  str = strreplace (str, "\"", "\\\"");
+  
+  if (Multi_Line)
+  {
+    str_arr = strchop (str, '\n', 0);
+    str_arr = array_map (String_Type, &po_wrap_str, str_arr);
+    str = strjoin (str_arr, "\\n\n");
+  }
+  else
+    str = po_wrap_str (str);
+  
+  str_arr = strchop (str, '\n', 0);
+  str_arr = str_arr [where (array_map (Integer_Type, &strlen, str_arr))];
+  str = strjoin (str_arr, "\n");
+  
+  return surround_in_quotes (str);
+}
+
+private define del_html_tags (str)
+{
+  return strtrim (str_uncomment_string (str, "<", ">"));
+}
+
+private define del_format_specifiers (str)
+{
+  variable letter, letters = [['A':'Z'], ['a':'z']];
+  
+  foreach (letters)
+  {
+    letter = char ();
+    str = strreplace (str, strcat ("%", letter), "");
+  }
+  
+  return str;   
+}
+
+%% Make an associative array of an entry where each key identifies a
+%% particular element in the entry.  With this, every element in a
+%% po-file entry can be accessed.
+private define hash_entry ()
+{
+  variable po = Assoc_Type[Array_Type];
+  variable entry_hash = Assoc_Type[String_Type, ""];
+  variable cmts_arr, key, value, entry_arr, entry;
+  
+  entry = ();
+  entry_arr = strchop_entry (entry);
+  po["all_elems"] = entry_arr;
+  
+  if (0 == strncmp (entry_arr[0], "#", 1))
+  {
+    cmts_arr = strchop (entry_arr[0], '\n', 0);
+    po["all_cmts"] = cmts_arr;
+    po["trans_cmts"] = 
+      cmts_arr [wherenot (array_map (Int_Type, &strncmp, cmts_arr, "# ", 2))];
+    po["extr_cmts"] = 
+      cmts_arr [wherenot (array_map (Int_Type, &strncmp, cmts_arr, "#.", 2))];
+    po["ref_cmts"] = 
+      cmts_arr [wherenot (array_map (Int_Type, &strncmp, cmts_arr, "#:", 2))];
+    po["flag_cmts"] = 
+      cmts_arr [wherenot (array_map (Int_Type, &strncmp, cmts_arr, "#,", 2))];
+    po["ctx_cmts"] = 
+      cmts_arr [wherenot (array_map (Int_Type, &strncmp, cmts_arr, "#|", 2))];
+    
+    entry_arr = entry_arr[[1:]];
+  }
+  
+  po["msgctxt"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgctxt", 7))];
+  po["msgid"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgid ", 6))];
+  po["msgid_plural"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgid_", 6))];
+  po["msgstr"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr ", 7))];
+  po["msgstr[0]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[0]", 9))];
+  po["msgstr[1]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[1]", 9))];
+  po["msgstr[2]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[2]", 9))];
+  po["msgstr[3]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[3]", 9))];
+  po["msgstr[4]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[4]", 9))];
+  po["msgstr[5]"] = 
+    entry_arr[wherenot (array_map (Int_Type, &strncmp, entry_arr, "msgstr[5]", 9))];
+  
+  foreach key, value (po) using ("keys", "values")
+  {
+    if (length (value))
+    {
+      value = strjoin (value, "\n");
+      entry_hash[key] = value;
+    }
+  }
+  
+  return entry_hash;
+}
+
+%% Assemble all the elements of a po-file entry according to the
+%% section, "The Format of PO Files", in the gettext manual at:
+%% http://www.gnu.org/software/hello/manual/gettext/PO-Files.html
+private define assemble_entry (Entry)
+{
+  variable entry_elems = {}, elem = "", cmts, elems, elems_pl;
+  
+  cmts = ["trans_cmts","extr_cmts","ref_cmts",
+          "flag_cmts", "ctx_cmts"];
+  elems = [cmts, "msgctxt","msgid","msgstr"];
+  elems_pl = [cmts, "msgctxt","msgid","msgid_plural", "msgstr[0]",
+              "msgstr[1]","msgstr[2]","msgstr[3]","msgstr[4]","msgstr[5]"];
+  
+  if (strlen (Entry["msgid_plural"]))
+  {
+    foreach elem (elems_pl)
+      list_append (entry_elems, Entry[elem]);
+  }
+  else
+  {
+    foreach elem (elems)
+      list_append (entry_elems, Entry[elem]);
+  }
+  
+  Entry = list_to_array (entry_elems);
+  Entry = Entry[where (array_map (Int_Type, &strlen, Entry))];
+  Entry = array_map (String_Type, &strtrim, Entry);
+  Entry = strjoin (Entry, "\n");
+  
+  return Entry;
+}
+
+%% Create lists of all cmts, msgids and msgstrs respectively
+private define create_strs_list (str)
+{
+  variable entry, str_arr, cmts = {}, msgids = {}, msgstrs = {};
+  
+  (str_arr,) = po2arr (str);
+  str_arr = array_map (Array_Type, &strchop_entry, str_arr);
+  
+  foreach entry (str_arr)
+  {
+    ifnot (string_match (entry[0], "^#", 1))
+      entry = ["", entry];
+    
+    entry = 
+      entry[wherenot (array_map (Int_Type,
+                                 &string_match, entry, "^msgctxt", 1))];
+    
+    if (string_match (entry[2], "^msgid_plural", 1))
+      list_append (cmts, entry[0]);
+    
+    list_append (cmts, entry[0]);
+    list_append (msgids, entry[1]);
+    
+    if (length (entry) == 3)
+      list_append (msgstrs, entry[2]);
+    
+    if (length (entry) == 4)  % asian forms like Japanese
+      list_append (msgstrs, entry[3]);
+    
+    if (length (entry) > 4)
+    {
+      list_append (msgids, entry[2]);
+      list_append (msgstrs, entry[3]);
+      list_append (msgstrs, entry[4]);
+    }
+  }
+  
+  cmts = list_to_array (cmts);
+  msgids = list_to_array (msgids);
+  msgstrs = list_to_array (msgstrs);
+  
+  ifnot (length (msgids))
+    exit_error ("no valid entries");
+  
+  ifnot (length (msgids) == length (msgstrs))
+    exit_error ("some error occured");
+  
+  return (cmts, msgids, msgstrs);
+}
+
+%% Create an associative array between msgids and msgstrs
+private define hash_msgids_msgstrs (pofile, fuzzy, strip_kw)
+{
+  variable strs = Assoc_Type[String_Type, ""];
+  variable strs_fuzzy = Assoc_Type[String_Type, ""];
+  variable msgid, msgids, msgids_fuzzy = {}, msgstrs, i = 0;
+  variable msg = "creating entry hash";
+  
+  (, msgids, msgstrs) = create_strs_list (file_as_str (pofile));
+  
+  if (strip_kw)
+  {   
+    (, msgids) = array_map (String_Type, String_Type, &sep_kw_and_str, msgids);
+    (, msgstrs) = array_map (String_Type, String_Type, &sep_kw_and_str, msgstrs);
+  }
+  
+  msgstrs = array_map (String_Type, &strtrim_end, msgstrs, "@");
+  
+  ifnot (length (msgids))
+    exit_error ("no entries to create hash from");
+  
+  if (fuzzy)
+  {
+    () = fprintf (stderr, "preparing msgids for fuzzy matching ...\n");
+    () = fflush (stderr);
+    
+    msgids_fuzzy = array_map (String_Type, &del_format_specifiers, msgids);
+    msgids_fuzzy = array_map (String_Type, 
+                              &str_delete_chars, msgids_fuzzy, "^\\w");
+    msgids_fuzzy = array_map (String_Type, &strlow, msgids_fuzzy);
+    
+    () = fprintf (stderr, "creating entry hash (fuzzy matching) ...\n");
+    () = fflush (stderr);
+    
+    _for i (0, length (msgids_fuzzy)-1, 1)
+      strs_fuzzy[msgids_fuzzy[i]] = msgstrs[i];
+  }
+  
+  () = fprintf (stderr, "creating entry hash (exact matching) ...\n");
+  () = fflush (stderr);
+  
+  _for i (0, length (msgids)-1, 1)
+    strs[msgids[i]] = msgstrs[i];
+  
+  return strs, strs_fuzzy;
+}
+
+%% Return an array of hashed entries of a whole po-file
+private define create_entries_hash (file)
+{
+  variable entries_arr, entries_arr_hash;
+  (entries_arr,) = po2arr (file_as_str (file));
+  entries_arr_hash = array_map (Assoc_Type, &hash_entry, entries_arr);
+  return entries_arr_hash;
+}
+
+private define isolate_msgstrs (file)
+{
+  variable msgstrs, entries_arr, header, entries, kws, obsolete, i;
+  
+  (,, msgstrs) = create_strs_list (file_as_str (file));
+  
+  if (string_match (msgstrs[0], "POT-Creation-Date", 1))
+    msgstrs = msgstrs[[1:]]; % don't work on header
+  
+  (kws, msgstrs) = array_map (String_Type, String_Type, &sep_kw_and_str, msgstrs);
+  msgstrs = array_map (String_Type, &strtrim, msgstrs);
+  
+  _for i (0, length (msgstrs)-1, 1)
+  {
+    ifnot (msgstrs[i] == "\"\"")
+      msgstrs[i] = trim_quotes (msgstrs[i]);
+  }
+  
+  msgstrs = strjoin (msgstrs, "\n\n\n");
+  return kws, msgstrs;
+}
+
+private define flag_fuzzy (entry_hash)
+{
+  if (string_match (entry_hash["flag_cmts"], ", fuzzy", 1))
+    return entry_hash;
+  
+  ifnot (strlen (entry_hash["flag_cmts"]))
+    entry_hash["flag_cmts"] = "#, fuzzy";
+  else
+    entry_hash["flag_cmts"] = pcre_replace (entry_hash["flag_cmts"],
+                                            "#,", "#, fuzzy,");
+  return entry_hash;
+}
+
+%% Write an array of possibly changed msgstrs back into the po-file
+private define assemble_pofile (file, kws, msgstrs)
+{
+  variable i = 0, n = 0, entries_hash, entries;
+  variable msgstr, msgstr_pl;
+  
+  msgstrs = strreplace (msgstrs, "\v", "");
+  msgstrs = strreplace (msgstrs, "\n\n\n", "\v");
+  msgstrs = strchop (msgstrs, '\v', 0);
+  
+  _for i (0, length (msgstrs)-1, 1)
+  {
+    ifnot (msgstrs[i] == "\"\"")
+      msgstrs[i] = surround_in_quotes (msgstrs[i]);
+  }
+  
+  ifnot (length (kws) == length (msgstrs))
+    return strjoin (msgstrs, "\n");
+  
+  msgstrs = array_map (String_Type, &concat_kw_str, kws, msgstrs);
+  entries_hash = create_entries_hash (file);
+  
+  _for i (1, length (entries_hash)-1, 1)
+  {
+    ifnot (strlen (entries_hash[i]["msgid_plural"]))
+    {
+      entries_hash[i]["msgstr"] = msgstrs[n];
+      n++;
+    }
+    else
+    {
+      entries_hash[i]["msgstr[0]"] = msgstrs[n];
+      entries_hash[i]["msgstr[1]"] = msgstrs[n+1];
+      n++; n++;
+    }
+  }
+  
+  entries = array_map (String_Type, &assemble_entry, entries_hash);
+  
+  ifnot (length (entries))
+    exit_error ("some error occured");
+  
+  if (length (Obsolete))
+    entries = [entries, Obsolete];
+  
+  entries = strjoin (entries, "\n\n");
+  return entries + "\n";
+}
+
+private define get_available_spell_dicts (spellprg)
+{
+  variable aspell, hunspell, dicts, e;
+  variable tmpfile = make_tmp_file ("/tmp/get_available_spell_dicts");
+  
+  EXIT_BLOCK
+  {
+    () = remove (tmpfile);
+  }
+  
+  if (spellprg == "aspell")
+  {
+    aspell = check_for_prg ("aspell");
+    (dicts, e) = syscmd_output_to_string ("$aspell dump dicts"$);
+    dicts = strchop (dicts, '\n', 0);
+  }
+  if (spellprg == "hunspell")
+  {
+    hunspell = check_for_prg ("hunspell");
+    (dicts, e) = 
+      syscmd_output_to_string ("$hunspell -D </dev/null >$tmpfile 2>&1"$);
+    
+    dicts = file_as_str (tmpfile);
+    dicts = strchop (dicts, '\n', 0);
+    dicts = dicts[where (array_map (Int_Type, &string_match, dicts, "^/", 1))];
+    dicts = array_map (String_Type, &path_basename, dicts);
+    dicts = array_map (String_Type, &strlow, dicts);
+  }
+  
+  ifnot (e == 0)
+    exit_error ("Could not get available dictionaries");
+  
+  return dicts;
+}
+
+private define append_string_to_file (str, file)
+{
+  variable fp = fopen (file, "a");
+  if (fp == NULL)
+    exit_error ("could not open $file"$);
+  str = strtrim (str);
+  str += "\n";
+  () = fputs (str, fp);
+  () = fclose (fp);
+}
+
+private define add_word_to_personal_spell_dict (word)
+{
+  variable aspell_pers_dict, hunspell_pers_dict;
+  variable aspell_pers_dict_header, enc = "", lang = "", locale = "";
+  
+  (locale, lang,, enc) = get_locale_info ();
+  
+  if (Spell_Prg == "aspell")
+  {
+    aspell_pers_dict_header = "personal_ws-1.1 $lang 0 $enc"$;
+    aspell_pers_dict = strcat (getenv ("HOME"), "/", ".aspell.$lang.pws"$);
+    
+    if (file_type (aspell_pers_dict, "reg"))
+      append_string_to_file (word, aspell_pers_dict);
+    else
+      append_string_to_file (aspell_pers_dict_header + 
+                             "\n" + word, aspell_pers_dict);
+    
+    () = fprintf (stdout, "\"\e[33m%s\e[0m\" added to %s\n",
+                  word, aspell_pers_dict);
+    () = fflush (stdout);
+  }
+  if (Spell_Prg == "hunspell")
+  {
+    hunspell_pers_dict = strcat (getenv ("HOME"), "/", ".hunspell_$locale"$);
+    append_string_to_file (word + "\n", hunspell_pers_dict);
+    () = fprintf (stdout, "\"\e[33m%s\e[0m\" added to %s\n",
+                  word, hunspell_pers_dict);
+    () = fflush (stdout);
+  }
+}
+
+%% Initiate the readline user interface
+slsh_readline_init ("SLPO");
+
+private variable My_Rline_History = NULL;
+
+public define slpo_rline_open_hook ()  % must be public
+{
+  if (My_Rline_History != NULL)
+    rline_set_history (My_Rline_History);
+}
+
+private define my_readline (prompt, initbuf)
+{
+  My_Rline_History = [initbuf];
+  variable rli = slsh_readline_new ("slpo");
+  return slsh_readline (rli, prompt);
+}
+
+%% Either use the spelling program's interactive interface to spell
+%% check the msgstrs or produce a list of misspelled words in the
+%% msgstrs with the spell prg and open this list in an editor. User
+%% leaves words to be corrected in the list and exits the editor. From
+%% the resulting prompts user types in corrected words and they are
+%% then replaced in the msgstrs. Just hitting enter at the prompt
+%% will add the word to the spell prg's personal dictionary.
+private define spellcheck (file, interactive)
+{
+  variable spell_cmd, spell_lst_cmd, cmd, spell_prg_base, msgstrs, words, i, s;
+  variable word = "", word_rep = "", lang, misspelled, kws, p = 0, msgstrs_chg;
+  variable del_lst = ["^","\\n"], locale = "", available_dicts, prompt = "";
+  variable brk_word_lst = [":","/",".","-"];
+  variable editor = getenv ("EDITOR"), visual = getenv ("VISUAL");
+  variable tmpfile = make_tmp_file ("/tmp/spellcheck");
+  
+  EXIT_BLOCK
+  {
+    () = remove (tmpfile);
+  }
+  
+  ifnot (has_translated (file))
+    exit_error ("no translated entries to work on");
+  
+  (locale, lang,,) = get_locale_info ();
+  
+  ifnot (strlen (Editor))
+    Editor = find_prgs_use_first ("$visual $editor jed xjed emacs nano mcedit vim joe vi vile"$);
+  
+  ifnot (strlen (Spell_Prg))
+    Spell_Prg = find_prgs_use_first ("aspell hunspell ispell");
+  
+  spell_prg_base = path_basename (Spell_Prg);
+  
+  if (spell_prg_base == "ispell")
+  {
+    spell_lst_cmd = "$Spell_Prg -l -d default <"$;
+    spell_cmd = "ispell -d default ";
+  }
+  if (spell_prg_base == "hunspell")
+  {
+    available_dicts = get_available_spell_dicts ("hunspell");
+    
+    ifnot (any (available_dicts == strlow (locale)))
+      exit_error ("dictionary $locale not installed"$);
+    
+    spell_lst_cmd = 
+      "$Spell_Prg -l -d $locale,en_US,en_GB < $tmpfile | "$ +
+      "sort -fu 2>/dev/null";
+    
+    spell_cmd = "hunspell -d $locale -c "$;
+  }
+  if (spell_prg_base == "aspell")
+  {
+    available_dicts = get_available_spell_dicts ("aspell");
+    
+    ifnot (any ((available_dicts == strlow (lang)) or
+                (any (available_dicts == strlow (locale)))))
+      exit_error ("dictionary \"$lang\" not installed"$);
+    
+    if (any (available_dicts == "en"))
+      spell_lst_cmd =
+      "$Spell_Prg -W3 --ignore-case list -d $lang < $tmpfile | "$ +
+      "$Spell_Prg -W3 --ignore-case list -d en | sort -fu 2>/dev/null"$;
+    else
+      spell_lst_cmd = 
+      "$Spell_Prg -W3 --ignore-case list -d $lang < $tmpfile | "$ +
+      "sort -fu 2>/dev/null";
+    
+    spell_cmd = "aspell -W3 --ignore-case -d $lang -c "$;
+  }
+  
+  (kws, msgstrs) = isolate_msgstrs (file);
+  
+  if (interactive)
+  {
+    write_string_to_file (msgstrs, tmpfile);
+    ifnot (0 == system ("$spell_cmd $tmpfile"$))
+      exit_error ("$spell_cmd failed"$);
+    msgstrs = file_as_str (tmpfile);
+  }
+  else
+  {
+    msgstrs_chg = msgstrs;
+    msgstrs_chg = del_html_tags (msgstrs_chg);
+    msgstrs_chg = del_format_specifiers (msgstrs_chg);
+    
+    foreach s (del_lst)
+      msgstrs_chg = strreplace (msgstrs_chg, s,  "");
+    
+    foreach s (brk_word_lst)
+      msgstrs_chg = strreplace (msgstrs_chg, s, "\n");
+    
+    msgstrs_chg = str_delete_chars (msgstrs_chg, "^\\w\n ");
+    write_string_to_file (msgstrs_chg, tmpfile);
+    (misspelled,) = syscmd_output_to_string (spell_lst_cmd);
+    misspelled =
+      "             (List of Misspelled or Unrecognized Words)\n\n" +
+      "      From the list below, delete all words that you DON'T want to\n" +
+      "      correct OR add to your personal wordlist. Then save the file\n" +
+      "      and exit the editor.\n" +
+      "      At the following prompts, type in corrected words (arrow up\n" +
+      "      pushes misspelled word into the editing field). Just hitting\n" +
+      "      <enter> on a blank field adds the word to the personal wordlist.\n\n" +
+      "                      *****************\n\n" + misspelled;
+    
+    write_string_to_file (misspelled, tmpfile);
+    
+    ifnot (0 == system ("$Editor $tmpfile"$))
+      exit_error ("Cmd: $Editor $tmpfile failed"$);
+    
+    words = strchop (file_as_str (tmpfile), '\n', 0);
+    words = array_map (String_Type, &strtrim, words);
+    p = wherefirst (words == "*****************", 1);
+    if (p)
+      words = words[[p+1:]];
+    words = words[where (array_map (Int_Type, &strlen, words))];
+		words = words[wherenot (array_map (Int_Type, &string_match, words, "[-~\(\)&\\^_]", 1))];
+		words = words[wherenot (array_map (Int_Type, &pcre_string_match, words,
+                                       "[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{4}"))];
+    words = array_map (String_Type, &strtrim, words);
+    
+		() = fprintf (stdout,
+                  "\n\e[32m<arrow-up>: Edit misspelled\n<enter>: Add word to personal " +
+                  "wordlist\n<ctrl-c>: Abandon all changes\e[0m\n\n");
+    
+		foreach word (words)
+    {
+      prompt = "Replace \"$word\" with?: "$;
+      try
+        word_rep = my_readline (prompt, word);
+      catch UserBreakError:
+        exit_error ("Changes abandoned!");
+      
+      word_rep = strtrim (word_rep);
+      
+      if (strlen (word_rep))
+      {
+        msgstrs = pcre_replace (msgstrs, "\\b$word\\b"$, word_rep);
+        () = fprintf (stdout, 
+                      "\"\e[31m%s\e[0m\" replaced by \"\e[32m%s\e[0m\"\n",
+                      word, word_rep);
+        () = fflush (stdout);
+      }
+      else
+        add_word_to_personal_spell_dict (word);
+    }
+  }
+  
+  return assemble_pofile (file, kws, msgstrs);
+}
+
+%% Isolate all msgstrs in a single string, run a specified external
+%% command on them and then assemble them back into the po-file. It
+%% means that the command needs only be executed once. Gettext's
+%% msgfilter program, it seems, runs the command once for every entry
+%% in the po-file.
+private define msgexec (cmd, file)
+{
+  variable msgstrs, e, kws;
+  variable msgstrs_tmp = make_tmp_file ("/tmp/msgexec");
+  
+  EXIT_BLOCK 
+  { 
+    () = remove (msgstrs_tmp);
+  }
+  
+  (kws, msgstrs) = isolate_msgstrs (file);
+  write_string_to_file (msgstrs, msgstrs_tmp);
+  (msgstrs, e) = syscmd_output_to_string ("$cmd < $msgstrs_tmp"$);
+  
+  ifnot (0 == e)
+    exit_error ("$cmd failed!"$);
+  
+  return assemble_pofile (file, kws, msgstrs);
+}
+
+%% Translate a po-file with Apertium, the machine translation system
+private define apertium_translate (langpair, file)
+{
+  variable msgen, cmd, entries_arr, available_langs;
+  variable msgen_tmp = make_tmp_file ("/tmp/apertium_translate");
+  variable apertium = check_for_prg ("apertium");
+  
+  EXIT_BLOCK 
+  { 
+    () = remove (msgen_tmp);
+  }
+  
+  ifnot (NULL == langpair)
+    Apertium_Langs = langpair;
+  
+  ifnot (strlen (Apertium_Langs))
+    exit_error ("User variable \"Apertium_Langs\" not set. Use \"apertium -l\" to list language pairs");
+  
+  (available_langs,) = syscmd_output_to_string ("apertium -l");
+  available_langs = strreplace (available_langs, " ", "");
+  available_langs = strchop (available_langs, '\n', 0);
+  ifnot (any (Apertium_Langs == available_langs))
+    exit_error ("Apertium language pair \"$Apertium_Langs\" not installed."$ +
+                "\"apertium -l\" lists available language pairs");
+  
+  if (has_translated (file))
+  {
+    () = fprintf (stderr, "Warning: Already translated entries may be modified ...\n");
+    () = fflush (stderr);
+    sleep (1);
+  }
+  
+  () = conv_charset (file);
+  
+  % If translating from English to other language then copy
+  % all msgids to untranslated msgstrs first.
+  if (Apertium_Langs[[0:1]] == "en")
+  {
+    msgen = check_for_prg ("msgen");
+    cmd = "$msgen -o $msgen_tmp $file"$;
+    
+    ifnot (0 == system (cmd))
+      exit_error ("$cmd failed"$);
+    
+    file = msgen_tmp;
+  }
+  
+  return msgexec ("$apertium -u $Apertium_Langs"$, file);
+}
+
+%% Fetch translations for untranslated entries in the po-file to be
+%% updated ("def") from a po-file in a language used as the
+%% from-language in the language pair ("ref"), then translate those
+%% entries with Apertium and merge them into "def", also flagging them
+%% fuzzy. The "keep_fuzzy" option will transfer and translate fuzzy
+%% entries from "ref" to "def".
+define apertium_update (def, ref, keep_fuzzy)
+{
+  variable i = 0, n = 0, cmd, e, entry;
+  variable match, matches = {}, idx_def = {}, msgstrs_apertium, kws;
+  variable msgids_ref, msgstrs_ref, entries_hash_def, entries, msgid_def;
+  variable msgattrib = check_for_prg ("msgattrib");
+  variable tmpfile = make_tmp_file ("/tmp/apertium_update"), refstr = "";
+  variable msgstr_apertium = "", msgstrs_apertium_l = {};
+  
+  EXIT_BLOCK 
+  { 
+    () = remove (tmpfile);
+  }
+  
+  () = conv_charset (def);
+  () = conv_charset (ref);
+  
+  if (keep_fuzzy)
+    cmd = "$msgattrib --clear-fuzzy --translated --no-obsolete $ref"$;
+  else
+    cmd = "$msgattrib --translated --no-fuzzy --no-obsolete $ref"$;
+  
+  (refstr, e) = syscmd_output_to_string (cmd);
+  
+  ifnot (0 == e)
+    exit_error ("$cmd failed!"$);
+  
+  entries_hash_def = create_entries_hash (def);
+  (, msgids_ref, msgstrs_ref) = create_strs_list (refstr);
+  
+  _for i (0, length (entries_hash_def)-1, 1)
+  {
+    msgid_def = entries_hash_def[i]["msgid"];
+    match = wherefirst (msgid_def == msgids_ref);
+    if (match)
+    {
+      % only fill out untranslated entries in "def"
+      if (entries_hash_def[i]["msgstr"] == "msgstr \"\"")
+      {
+        list_append (matches, match);
+        list_append (idx_def, i);
+      }
+    }
+  }
+  
+  ifnot (length (matches))
+    exit_error ("no identical msgids found or no untranslated messages in $def"$);
+  
+  matches = list_to_array (matches);
+  idx_def = list_to_array (idx_def);
+  msgstrs_apertium = msgstrs_ref[matches];
+  (kws, msgstrs_apertium) = array_map (String_Type, String_Type,
+                                       &prep_str, msgstrs_apertium);
+  
+  msgstrs_apertium = array_map (String_Type, &strtrim, msgstrs_apertium);
+  
+  
+  msgstrs_apertium = strjoin (msgstrs_apertium, "\n\n\n\n");
+  write_string_to_file (msgstrs_apertium, tmpfile);
+  (msgstrs_apertium,) = 
+    syscmd_output_to_string ("apertium $Apertium_Langs -u < $tmpfile"$);
+  msgstrs_apertium = strreplace (msgstrs_apertium, "\n\n\n\n", "\v");
+  msgstrs_apertium = strchop (msgstrs_apertium, '\v', 0);
+  msgstrs_apertium = array_map (String_Type, &post_prep_str, msgstrs_apertium);
+  
+  ifnot (length (kws) == length (msgstrs_apertium))
+    exit_error ("some error occured");
+  
+  msgstrs_apertium = array_map (String_Type, &concat_kw_str, kws, msgstrs_apertium);
+  
+  _for i (0, length (idx_def)-1, 1)
+  {
+    entry = entries_hash_def[idx_def[i]];
+    entry["msgstr"] = msgstrs_apertium[n];
+    entry = flag_fuzzy (entry);
+    entries_hash_def[idx_def[i]] = entry;
+    n++;
+  }
+  
+  entries = array_map (String_Type, &assemble_entry, entries_hash_def);
+  
+  if (length (Obsolete))
+    entries = [entries, Obsolete];
+  
+  return printf ("%s", strjoin (entries, "\n\n"));
+}
+
+%% Replace words in a po-file from a list of pairwise words/strings,
+%% the pairs being separated by a colon, where the first is the one to
+%% be replaced and the second its replacement.
+private define replace_from_list (listfile, file)
+{
+  variable word, word_rep, line_arr, i, msgstrs, kws, lines, listfilestr, e;
+  variable tmpfile = make_tmp_file ("/tmp/replace_from_list");
+  
+  EXIT_BLOCK
+  {
+    () = remove (tmpfile);
+  }
+  
+  listfilestr = file_as_str (listfile);
+  (kws, msgstrs) = isolate_msgstrs (file);
+  write_string_to_file (msgstrs, tmpfile);
+  lines = strchop (listfilestr, '\n', 0);
+  lines = array_map (String_Type, &strtrim, lines);
+  lines = lines [where (0 != array_map (Int_Type, &strncmp, "#", lines, 1))];
+  lines = lines [where (array_map (Integer_Type, &strlen, lines))];
+  lines = lines [where (array_map (Integer_Type,
+                                   &string_match, lines, ":", 1))];
+  line_arr = array_map (Array_Type, &strtok, lines, ":");
+  line_arr = array_map (Array_Type, &strtrim, line_arr);
+  
+  _for i (0, length (line_arr)-1, 1)
+  {
+    word = line_arr[i][0];
+    word_rep = line_arr[i][1];
+    () = fprintf (stderr, "replacing \"%s\" with \"%s\"\n", word, word_rep);
+    () = fflush (stderr);
+    ifnot (0 == system ("sed -i 's/$word/$word_rep/gI' $tmpfile"$))
+      exit_error ("replacing with sed failed");
+  }
+  
+  msgstrs = file_as_str (tmpfile);
+  return assemble_pofile (file, kws, msgstrs);
+}
+
+%% Use the wdiff(1) prg to make a word diff.
+private define po_wdiff (old, new)
+{
+  variable wdiff = check_for_prg ("wdiff");
+  variable tmp_a = make_tmp_file ("wdiff_a");
+  variable tmp_b = make_tmp_file ("wdiff_b");
+  variable word_diff = "";
+  
+  write_string_to_file (old, tmp_a);
+  write_string_to_file (new, tmp_b);
+  
+  (word_diff,) =
+    syscmd_output_to_string ("$wdiff -n $tmp_a $tmp_b 2>/dev/null"$);
+  
+  () = remove (tmp_a);
+  () = remove (tmp_b);
+  
+  return word_diff;
+}
+
+%% Use the diff(1) prg to make a line-by-line diff.
+private define diff_u (old, new)
+{
+  variable prg = check_for_prg ("diff");
+  variable tmp_a = make_tmp_file ("diffu_a");
+  variable tmp_b = make_tmp_file ("diffu_b");
+  variable diff = "", exit_status;
+  variable cmd = "$prg --unified=100 $tmp_a $tmp_b | tail -n +4 2>/dev/null"$;
+  
+  old += "\n";
+  new += "\n";
+  write_string_to_file (old, tmp_a);
+  write_string_to_file (new, tmp_b);
+  (diff, exit_status) = syscmd_output_to_string (cmd);
+  
+  ifnot (0 == exit_status)
+    exit_error ("$cmd failed"$);
+  
+  () = remove (tmp_a);
+  () = remove (tmp_b);
+  
+  return diff;
+}
+
+private define has_untrans_or_fuzzy (str)
+{
+  return pcre_string_match (str, "#, fuzzy|[ ]+\"\"\n\n");
+}
+
+private define return_msgid_linenos (file)
+{
+  variable str_arr = strchop (file_as_str (file), '\n', 0);
+  return wherenot (array_map (Int_Type, &strncmp,  str_arr, "msgid", 5));
+}
+
+%% Retain only user cmts and extracted cmts
+private define filter_cmt (cmt)
+{
+  variable cmt_arr = strchop (cmt, '\n', 0);
+  
+  cmt_arr = cmt_arr[where (array_map (Int_Type, &pcre_string_match,
+                                      cmt_arr, "^#[ ]|^#\\."))];
+  cmt_arr = array_map (String_Type, &strtrim, cmt_arr);
+  return strtrim (strjoin (cmt_arr, "\n"));
+}
+
+private define format_raw_str (str)
+{
+  variable kw = "";
+  
+  (kw, str) = prep_str (str);
+  str = post_prep_str (str);
+  return concat_kw_str (kw, str);
+}
+
+%% Determine the diff format of en entry in producing the diff, based
+%% on the format of the strings.
+private define create_diff (msgstr_old, msgstr_new)
+{
+  variable diff, kw;
+  
+  % if ((lines_count (msgstr_new) == 1) && (strlen (msgstr_new) < Wrap))
+  %   {
+  %      diff = strcat ("-", msgstr_old, "\n+", msgstr_new);
+  %   }
+  % else if ((Multi_Line) || (lines_count (msgstr_new) < 3) ||
+  %          (strlen (msgstr_new) < Wrap))
+  if ((lines_count (msgstr_new) < 3) ||
+      (strlen (msgstr_new) < Wrap))
+  {
+    diff = diff_u (msgstr_old, msgstr_new);
+  }
+  else %% use wdiff for others
+  {
+    (kw, msgstr_old) = prep_str (msgstr_old);
+    (kw, msgstr_new) = prep_str (msgstr_new);
+    diff = po_wdiff (msgstr_old, msgstr_new);
+    
+    %% only changes in whitespace. wdiff does not mark
+    %% these up so use diff_u
+    ifnot (pcre_string_match (diff, "{\\+|\\[-"))
+    {
+      msgstr_old = post_prep_str (msgstr_old);
+      msgstr_new = post_prep_str (msgstr_new);
+      diff = diff_u (msgstr_old, msgstr_new);
+    }
+    else
+    {
+      diff = post_prep_str (diff);
+    }
+    
+    diff = concat_kw_str (kw, diff);
+  }
+  
+  return diff;
+}
+
+%% Produce an easy-to-read diff between two po-files
+private define po_diff (oldfile, newfile)
+{
+  variable msgattrib = check_for_prg ("msgattrib");
+  variable wdiff_prg = check_for_prg ("wdiff");
+  variable linenos = return_msgid_linenos (newfile);
+  variable all_msgids_new, msgid_new = "", all_msgstrs_old;
+  variable msgstr_new = "", msgstr_old = "", diff = "", diffs = {};
+  variable mod_strs = 0, new_strs = 0, e = 0, i = 0, lineno = 0, n = 0;
+  variable oldstr = "", newstr = "", wmsg = "", strs_old, strs_new;
+  variable cmts_old, cmts_new, cmt_new = "", cmt_old = "", cmd = "";
+  variable all_cmts_new, all_cmts_old, all_msgids_old, all_msgstrs_new;
+  variable match_old, match_new, header = "", kw_msgid = "", kw_msgstr = "";
+  
+  if (has_untrans_or_fuzzy (file_as_str (newfile)))
+    wmsg = sprintf ("\t(WARNING: %s contained fuzzy or untranslated entries.\n" +
+                    "\tLine and entry numbers are skewed)", path_basename (newfile));
+  
+  ifnot (file_type (newfile, "reg"))
+    exit_error ("$newfile not found or is not a regular file"$);
+  
+  ifnot (conv_charset (newfile))
+    exit_error ("encoding conversion on $newfile failed, try to validate"$);
+  
+  cmd = "$msgattrib --no-wrap --translated --no-fuzzy --no-obsolete $newfile"$;
+  (newstr, e) = syscmd_output_to_string (cmd);
+  
+  if (e != 0)
+    exit_error ("msgattrib cmd on $newfile failed, try to validate"$);
+  
+  if (strlen (newstr) == 0)
+    exit_error ("$newfile contained no translated messages"$);
+  
+  ifnot (file_type (oldfile, "reg"))
+    exit_error ("$oldfile not found or is not a regular file"$);
+  
+  ifnot (conv_charset (oldfile))
+    exit_error ("encoding conversion on $oldfile failed, try to validate"$);
+  
+  % The "no-fuzzy" flag here ensures that messages that had the fuzzy
+  % flag in the old version are simply treated as new messages
+  cmd = "$msgattrib --no-wrap --no-fuzzy --translated --no-obsolete $oldfile"$;
+  (oldstr, e) = syscmd_output_to_string (cmd);
+  
+  if (e != 0) 
+    exit_error ("msgattrib cmd on $oldfile failed, try to validate"$);
+  
+  ifnot (file_type (oldfile, "reg"))
+    exit_error ("$oldfile not found or is not a regular file"$);
+  
+  if (strlen (oldstr) == 0)
+    exit_error ("$oldfile contained no translated messages"$);
+  
+  (all_cmts_old, all_msgids_old, all_msgstrs_old) = create_strs_list (oldstr);
+  (all_cmts_new, all_msgids_new, all_msgstrs_new) = create_strs_list (newstr);
+  all_cmts_old = array_map (String_Type, &filter_cmt, all_cmts_old);
+  all_cmts_new = array_map (String_Type, &filter_cmt, all_cmts_new);
+  
+  _for i (0, length (all_msgids_new)-1, 1)
+  {
+    lineno = linenos[i];
+    cmt_new = all_cmts_new[i];
+    msgstr_new = all_msgstrs_new[i];
+    msgid_new = all_msgids_new[i];
+    
+    % skip [[1:]] instances of identical msgids in the same file (msgctxt)
+    if (msgid_new == NULL) 
+      continue;
+    
+    Multi_Line = str_is_multiline (msgid_new);
+    
+    % check for identical msgid in old and new
+    match_old = where (msgid_new == all_msgids_old);
+    match_new = where (msgid_new == all_msgids_new);
+    msgid_new = format_raw_str (msgid_new);
+    
+    if (length (match_old))
+    {
+      cmts_old = all_cmts_old[match_old];
+      cmts_new = all_cmts_new[match_new];
+      strs_old = all_msgstrs_old[match_old];
+      strs_new = all_msgstrs_new[match_new];
+      
+      % one or more identical msgids present in the same file
+      % (msgctxt entries)
+      if (length (match_old) > 1)
+      {
+        (strs_old, strs_new) = array_align_length (strs_old, strs_new);
+        
+        % process all identical msgids in the same file
+        _for n (0, length (strs_new)-1, 1)
+        {
+          if (strs_old[n] != strs_new[n])
+          {
+            if (strlen (strs_old[n]))
+            {
+              diff = create_diff (strs_old[n], strs_new[n]);
+              diff = strcat (cmts_new[n], "\n", msgid_new, "\n", diff);
+              diff = strtrim (diff);
+              diff = sprintf ("\t[modified: entry: %d / line: %d]\n\n%s", match_new[n], linenos[match_new[n]]+1, diff);
+              mod_strs++;
+            }
+            else
+            {
+              diff = strcat (cmts_new[n], "\n", msgid_new, "\n", strs_new[n]);
+              diff = strtrim (diff);
+              diff = sprintf ("\t[new: entry: %d / line: %d]\n\n%s", i+1, lineno+1, diff);
+              new_strs++;
+            }
+            
+            list_append (diffs, diff);
+          }
+          else
+          {
+            % a new comment was added
+            if (cmts_old[n] != cmts_new[n])
+            {
+              diff = strcat (cmts_new[n], "\n", msgid_new, "\n", msgstr_new);
+              diff = strtrim (diff);
+              diff = sprintf ("\t[new comment only: entry: %d / line: %d]\n\n%s", match_new[n], linenos[match_new[n]]+1, diff);
+              list_append (diffs, diff);
+            }
+          }
+        }
+        
+        % when encountered again identical msgid in same file
+        % is skipped as per above
+        all_msgids_new[match_new] = NULL;
+        continue;
+      }
+      else % msgid is unique
+      {
+        msgstr_old = all_msgstrs_old[match_old[0]];
+        
+        if (msgstr_old != msgstr_new) % translation was modified
+        {
+          msgstr_old = format_raw_str (msgstr_old);
+          msgstr_new = format_raw_str (msgstr_new);
+          diff = create_diff (msgstr_old, msgstr_new);
+          diff = strcat (cmt_new, "\n", msgid_new, "\n", diff);
+          diff = strtrim (diff);
+          diff = sprintf ("\t[modified: entry: %d / line: %d]\n\n%s", i+1, lineno+1, diff);
+          mod_strs++;
+          list_append (diffs, diff);
+        }
+        else
+        {
+          % neither changes in translation nor a new
+          % message but a new translator comment was
+          % added
+          cmt_old = cmts_old[0];
+          if ((cmt_old != cmt_new) && (strlen (cmt_new)))
+          {        
+            diff = strcat (cmt_new, "\n", msgid_new, "\n", msgstr_new);
+            diff = strtrim (diff);
+            diff = sprintf ("\t[new comment only: entry: %d / line: %d]\n\n%s", i+1, lineno+1, diff);
+            list_append (diffs, diff);
+          }
+        }
+      }
+    }
+    else % msgid is new (not found in old file)
+    {
+      msgid_new = format_raw_str (msgid_new);
+      msgstr_new = format_raw_str (msgstr_new);
+      diff = strcat (cmt_new, "\n", msgid_new, "\n", msgstr_new);
+      diff = strtrim (diff);
+      diff = sprintf ("\t[new: entry: %d / line: %d]\n\n%s", i+1, lineno+1, diff);
+      new_strs++;
+      list_append (diffs, diff);
+    }
+  }
+  
+  if (length (diffs))
+  {
+    diffs = list_to_array (diffs);
+    diffs = diffs [where (array_map (Integer_Type, &strlen, diffs))];
+  }
+  
+  if (length (diffs) < 2) % if 1 only header has changed
+    exit_error ("files are identical");
+  
+  diffs = strjoin (diffs, "\n\n");
+  diffs = strchop (diffs, '\n', 0);
+  
+  % some aesthetic indentation
+  _for i (0, length (diffs)-1, 1)
+  {
+    ifnot (pcre_string_match (diffs[i], "^[ +-]+"))
+      diffs[i] = strcat (" ", diffs[i]);
+  }
+  
+  diffs = strjoin (diffs, "\n");
+  header =
+    "--- $oldfile\n+++ $newfile\n\n$mod_strs translation(s) have been modified and "$ +
+    "\n$new_strs translation(s) are new since the previous version.\n\n"$;
+  
+  if (strlen (wmsg))
+    wmsg += "\n\n";
+  
+  diffs = strcat (header, wmsg, diffs, "\n");
+  
+  return printf ("%s", diffs);
+}
+
+%% Replace a word/string in all the msgstrs
+private define replace_in_msgstrs (str, rep, file)
+{
+  variable kws, msgstrs;
+  
+  (kws,  msgstrs) = isolate_msgstrs (file);
+  msgstrs = pcre_replace (msgstrs, str, rep);
+  return printf ("%s", assemble_pofile (file, kws, msgstrs));
+}
+
+%% Create compendium file if it does not exist.
+private define touch_compendium ()
+{
+  variable fp;
+  
+  ifnot (file_type (SLpo_Compendium, "reg"))
+  {
+    fp = fopen (SLpo_Compendium, "a+");
+    if (fp == NULL)
+      exit_error ("could not create $SLpo_Compendium"$);
+  }
+}
+
+%% Write the compedium from an associative array of msgids
+%% and msgstrs
+private define write_compendium_from_hash (comp_hash)
+{
+  variable msgids, msgstrs, fp, i;
+  
+  msgids = assoc_get_keys (comp_hash);
+  ifnot (length (msgids))
+    return;
+  msgstrs = assoc_get_values (comp_hash);
+  i = array_sort (msgids);
+  fp = fopen (SLpo_Compendium, "w+");
+  if (fp == NULL)
+    exit_error ("could not open $SLpo_Compendium"$);
+  () = array_map (Int_Type, &fprintf, fp, "%s\n%s\n\n", msgids[i], msgstrs[i]);
+  () = fclose (fp);
+  () = printf ("file(s) written to $SLpo_Compendium\n"$);
+}
+
+%% Remove duplicate msgid entries from compendium while always
+%% preserving the "immutable" translations
+private define del_dups_and_write_comp (comp)
+{
+  variable strs = Assoc_Type[String_Type, ""];
+  variable msgids, msgstrs, i, e, sz;
+  
+  () = printf ("...weeding out entries w/duplicate msgids in compendium ...\n");
+  comp = strtrim (comp);
+  (, msgids, msgstrs) = create_strs_list (comp);
+  
+  %% since every key (msgid) in an associative array must be unique,
+  %% it is a fast way to remove duplicate msgid entries.
+  _for i (0, length (msgids)-1, 1)
+    strs[msgids[i]] = msgstrs[i];
+  
+  % make sure "immutable" translations are preserved
+  _for i (0, length (msgstrs)-1, 1)
+    if (string_match (msgstrs[i], "@$", 1)) % "@" = "immutable"
+      strs[msgids[i]] = msgstrs[i];
+  
+  write_compendium_from_hash (strs);
+}
+
+%% Add a file to the compendium. User will have the option to have
+%% all the translations marked "immutable" - the entries will have
+%% a trailing "@" added to them to mark their status. It means that
+%% they will not be overwritten when updating the compendium.
+private define add_file_to_compendium (file)
+{
+  variable e, filestr, msgids, msgstrs, i, entry, entries, comp, enc;
+  variable prg = check_for_prg ("msgattrib");
+  
+  ifnot (conv_charset (file))
+    exit_error ("encoding conversion on $file failed, try to validate"$);
+  
+  touch_compendium ();
+  (filestr, e) = 
+    syscmd_output_to_string ("$prg --clear-obsolete --no-fuzzy --translated $file 2>/dev/null"$);
+  
+  ifnot (0 == e)
+    exit_error ("$file did not validate"$);
+  
+  (, msgids, msgstrs) = create_strs_list (filestr);
+  msgids = msgids[[1:]]; % omit header
+  msgstrs = msgstrs[[1:]];
+  
+  if ("y" == my_readline ("mark all translations \"immutable\" [y/n]: ", ""))
+    msgstrs = array_map (String_Type, &strcat, msgstrs, "@");
+  
+  entries = array_map (String_Type, &strcat, msgids, "\n", msgstrs);
+  entries = array_map (String_Type, &strtrim, entries);
+  entries = strtrim (strjoin (entries, "\n\n"));
+  comp = strcat (entries, "\n\n", strtrim (file_as_str (SLpo_Compendium)));
+  del_dups_and_write_comp (comp);
+  return NULL;
+}
+
+%% Add a whole directory of po-files to the compendium.
+private define add_dir_to_compendium (dir)
+{
+  variable po_files, idx_succ, idx_fail, conv_status, headers;
+  variable i, e, filestr = "", compstr = "", file = "", entries_arr;
+  variable prg = check_for_prg ("msgattrib");
+  variable conv = check_for_prg ("iconv");
+  variable conv_failed = [""], failed_files = [""], msgids, msgstrs;
+  
+  touch_compendium ();
+  po_files = pofiles_in_dir (dir);
+  po_files = po_files[array_sort (po_files)];
+  
+  ifnot (length (po_files))
+    exit_error ("No po files in directory");
+  
+  () = fprintf (stdout, "checking encodings of %d files ...",
+                length (po_files));
+  () = fflush (stdout);
+  conv_status = array_map (Int_Type, &conv_charset, po_files);
+  idx_succ = where (conv_status, &idx_fail);
+  
+  ifnot (length (idx_succ))
+    exit_error, "No files were converted succesfully";
+  
+  conv_failed = po_files[idx_fail];
+  po_files = po_files[idx_succ];
+  
+  if (length (conv_failed))
+    conv_failed = array_map (String_Type, &strcat, conv_failed, ": [encoding errors]");
+  
+  _for i (0, length (po_files)-1, 1)
+  {
+    file = po_files[i];
+    (filestr, e) = 
+      syscmd_output_to_string ("$prg --clear-obsolete --no-fuzzy --translated $file 2>/dev/null"$);
+    
+    ifnot (0 == e)
+    {
+      failed_files = [failed_files, file + ": [validation errors]"];
+      continue;
+    }
+    ifnot (strlen (filestr))
+    {
+      failed_files = [failed_files, file + ": [no translated messages]"];
+      continue;
+    }
+    
+    filestr = strtrim (filestr);
+    compstr += filestr + "\n\n";
+    () = fprintf (stdout, "adding %s (%d of %d file(s)) to compendium\n",
+                  path_basename (po_files[i]), i+1, length (po_files));
+  }
+  
+  () = printf ("cleaning up compendium ...\n");
+  (, msgids, msgstrs) = create_strs_list (compstr);
+  headers = where (msgids == "msgid \"\"");
+  msgids[headers] = ""; % remove headers
+  msgstrs[headers] = "";
+  entries_arr = array_map (String_Type, &strcat, msgids, "\n", msgstrs);
+  entries_arr = array_map (String_Type, &strtrim, entries_arr);
+  compstr = strtrim (strjoin (entries_arr, "\n\n"));
+  compstr = strcat (strtrim (file_as_str (SLpo_Compendium)), "\n\n", compstr);
+  
+  if (strlen (compstr))
+    del_dups_and_write_comp (compstr);
+  
+  failed_files = [failed_files, conv_failed];
+  failed_files = strtrim (strjoin (failed_files, "\n"));
+  if (strlen (failed_files))
+  {
+    () = fprintf (stderr, "\nThe file(s) below were not added to the " + 
+                  "compendium,\neither because they contained " +
+                  "no translated messages\nor because they did " +
+                  "not validate:\n\n\e[31m%s\e[0m\n", failed_files);
+  }
+  else
+    () = printf ("done\n");
+  
+  return NULL;     
+}
+
+%% Fill out all entries in the current po-file with translations of
+%% corresponding msgids from the compendium. First it checks for
+%% translations of exactly matching msgids and failing that then tries
+%% for "fuzzily" matching translations, which means that msgids are
+%% compared without punctuation, whitespace and certain characters.
+%% Such entries will be flagged "fuzzy"
+private define init_with_compendium (file)
+{
+  variable i = 1, overwrite = "n";
+  variable entries_arr, entries_arr_hash, entries = "", kw = "", kw_0 = "";
+  variable msgid_pl = "", comp_hash, comp_hash_fuzzy, msgstr_c_fuzzy;
+  variable msgid = "",  msgid_fuzzy = "",  msgstr_c = "", msgstr_c_pl = "";
+  
+  entries_arr_hash = create_entries_hash (file);
+  
+  if (has_translated (file))
+    overwrite = my_readline ("overwrite existing translations [y/n]: ", "");
+  
+  () = fprintf (stderr, "hashing po-file and compendium ...\n");
+  () = fflush (stderr);
+  (comp_hash, comp_hash_fuzzy) = hash_msgids_msgstrs (SLpo_Compendium, 1);
+  () = fprintf (stderr, "filling out entries ...\n");
+  () = fflush (stderr);
+  _for i (1, length (entries_arr_hash)-1, 1) % start "1" = skip header
+  {
+    msgstr_c = "", msgstr_c_pl = "";
+    ifnot (overwrite == "y")
+    {
+      ifnot (string_match (entries_arr_hash[i]["msgstr"], " \"\"$", 1))
+        continue;
+    }
+    msgid = entries_arr_hash[i]["msgid"];
+    msgid_pl = entries_arr_hash[i]["msgid_plural"];
+    (, msgstr_c) = sep_kw_and_str (comp_hash[msgid]);
+    msgstr_c_pl = comp_hash[msgid_pl];
+    (kw, ) = sep_kw_and_str (entries_arr_hash[i]["msgstr"]);
+    (kw_0, ) = sep_kw_and_str (entries_arr_hash[i]["msgstr[0]"]);
+    
+    if (strlen (msgstr_c)) % exact matching
+    {
+      msgstr_c = concat_kw_str (kw, msgstr_c);
+      entries_arr_hash[i]["msgstr"] = msgstr_c;
+      msgstr_c = concat_kw_str (kw_0, msgstr_c);
+      entries_arr_hash[i]["msgstr[0]"] = msgstr_c;
+    }
+    else % "fuzzy" matching
+    {
+      msgid_fuzzy = strlow (str_delete_chars (msgid, "^\\w"));
+      msgid_fuzzy = del_format_specifiers (msgid_fuzzy);
+      msgstr_c_fuzzy = comp_hash_fuzzy[msgid_fuzzy];
+      ifnot (strlen (msgstr_c_fuzzy))
+        continue;
+      (, msgstr_c_fuzzy) = sep_kw_and_str (msgstr_c_fuzzy);
+      entries_arr_hash[i]["msgstr"] = 
+        concat_kw_str (kw, msgstr_c_fuzzy);
+      entries_arr_hash[i]["msgstr[0]"] = 
+        concat_kw_str (kw_0, msgstr_c_fuzzy);
+      entries_arr_hash[i] = flag_fuzzy (entries_arr_hash[i]);
+    }
+    
+    if (strlen (msgstr_c_pl))
+      entries_arr_hash[i]["msgstr[1]"] = msgstr_c_pl;
+  }
+  
+  entries_arr = array_map (String_Type, &assemble_entry, entries_arr_hash);
+  
+  if (length (Obsolete))
+    entries_arr = [entries_arr, Obsolete];
+  
+  entries = strtrim (strjoin (entries_arr, "\n\n"));
+  
+  ifnot (strlen (entries))
+    exit_error ("file contained no valid messages");
+  
+  return entries + "\n";
+}
+
+%% A wrapper around gettext's msgfmt validation command. In case of
+%% errors, the po-file is written to stdout with error entries flagged
+%% fuzzy.
+private define validate (file)
+{
+  variable cmd, msg = "", filestr = "", lines, lineno, linenos, e, i;
+  variable tmpfile = make_tmp_file ("/tmp/slpo_validate");
+  variable msgfmt = check_for_prg ("msgfmt");
+  
+  cmd = "$msgfmt -o /dev/null 2>&1 --check-accelerators -c -v $file"$;
+  (msg, e) = syscmd_output_to_string (cmd);
+  
+  ifnot (0 == e)
+  {
+    lines = strchop (msg, '\n', 0);
+    lines = lines[where (array_map (Int_Type, &string_match, lines, "[a-zA-Z]:[0-9]", 1))];
+    linenos = array_map (String_Type, &extract_element, lines, 1, ':');
+    linenos = array_map (Int_Type, &integer, linenos);
+    filestr = file_as_str (file);
+    filestr = strchop (filestr, '\n', 0);
+    
+    % flag error entries fuzzy
+    _for i (0, length (linenos)-1, 1)
+    {
+      lineno = linenos[i];
+      
+      while (0 == string_match (filestr[lineno], "^#", 1))
+        lineno--;
+      
+      ifnot (string_match (filestr[lineno], "#,", 1))
+        filestr[lineno] = strcat (filestr[lineno], "\n", "#, fuzzy");
+      else
+      {
+        if (string_match (filestr[lineno], "#, fuzzy", 1))
+          continue;
+        else
+          filestr[lineno] = pcre_replace (filestr[lineno], "#,", "#, fuzzy,");
+      }
+    }
+    
+    () = fprintf (stderr, "\n\e[31m%s\e[0m\n%s", "$file did not validate, error entries have been flagged fuzzy"$, msg);
+    () = fflush (stderr);
+    () = fprintf (stdout, "%s\n", (strjoin (filestr, "\n")));
+    () = fflush (stdout);
+    exit (1);
+  }
+  else
+  {
+    () = fprintf (stdout,  "%s\n", "\n\e[33m$msg\e[0m"$);
+    return NULL;
+  }
+}
+
+%% Check for two identical adjacent words, usually a writing error.
+private define dbl_word (str)
+{
+  variable word_arr = strtok (str), i = 0, word_prev = "";
+  
+  _for i (0, length (word_arr)-1, 1)
+  {
+    if (word_arr[i] == word_prev)
+      return 1;
+  }
+
+    word_prev = word_arr[i];
+
+  % return 0;
+}
+
+% Align the case of the initial letter in the msgstr to that of
+% the initial letter in the msgid. The latter is assumed to always be
+% < acsii 128 while the former may be a wide character in any range.
+private define align_case (msgid, msgstr)
+{
+  variable nchars_msgstr, letter_arr_msgstr, p = 0;
+  
+  nchars_msgstr = strcharlen (msgstr);
+  letter_arr_msgstr = ULong_Type[nchars_msgstr];
+  
+  if (length (letter_arr_msgstr) > 0)
+  {
+		% p is the byte length of the first character in msgstr
+		(p, letter_arr_msgstr[0]) = strskipchar (msgstr, p, 0);
+    
+		if ((islower (msgid[0]) && (isupper (msgstr[[0:p-1]]))))
+		  msgstr = strlow (msgstr[[0:p-1]]) + msgstr[[p:]];
+		if ((isupper (msgid[0]) && (islower (msgstr[[0:p-1]]))))
+		  msgstr = strup (msgstr[[0:p-1]]) + msgstr[[p:]];
+  }
+  
+  return msgstr;
+} 
+
+private define nblanks_mismatch (msgid, msgstr)
+{
+  variable a = strlen (msgid) - strlen (strtrim_end (msgid, " .:?"));
+  variable b = strlen (msgstr) - strlen (strtrim_end (msgstr, " ,.:?"));
+
+  return a != b;
+}
+
+% private define nblanks_mismatch (a, b)
+% {
+%   variable punct = ".,;:!?&|-#%/ ";
+
+%   if (strlen (a) - strlen (strtrim (a, " .")) == 0 &&
+%       strlen (b) - strlen (strtrim (b)) > 0 ||
+%       strlen (a) - strlen (strtrim (a, " .")) > 0 &&
+%       strlen (b) - strlen (strtrim (b)) == 0) 
+%     return 1;
+
+%   % if (strlen (a) - strlen (strtrim (a, " .")) > 0 &&
+%   %     strlen (strtrim (b, " .")) - strlen (b) == 0)
+%   %   return 1;
+
+%   return 0;
+% }
+
+%% Check and correct incongruity in number of begin and end blanks between
+%% msgid and msgstr.
+private define align_blanks (a, b, pos)
+{
+  variable blanks_a, blanks_b, ln_diff;
+  
+  if (pos == "beg")
+  {
+		blanks_a = pcre_matches ("^[ ]+", a)[0];
+		blanks_b = pcre_matches ("^[ ]+", b)[0];
+  }
+  if (pos == "end")
+  {
+		blanks_a = pcre_matches ("[ ]+$", a)[0];
+		blanks_b = pcre_matches ("[ ]+$", b)[0];
+  }
+  
+  if (blanks_a == NULL) blanks_a = "";
+  if (blanks_b == NULL) blanks_b = "";
+  
+  ln_diff = (strlen (blanks_a) - strlen (blanks_b));
+  
+  if (ln_diff > 0)
+    loop (ln_diff)
+    {
+		  if (pos == "beg")
+        b = " " + b;
+		  if (pos == "end")
+        b += " ";
+    }
+  
+  return b;
+}
+
+%% Check and correct mismatch in end punctuation between
+%% msgid and msgstr.
+private define align_endchar_punct (a, b)
+{
+  variable punct = ".,;:!?&|-#%/";
+  variable punct_a = is_substr (punct, char (a[-1]));
+  variable punct_b = is_substr (punct, char (b[-1]));
+  variable e = ((punct_a + punct_b) == 0) || (punct_a == punct_b);
+  
+  ifnot (e)
+  {
+		if ((punct_a) && (a[-1] != b[-1]))
+		  b = b[[:-1]] + char (a[-1]);
+		if ((punct_b) && not (punct_a))
+		  b = b[[:-2]];
+  }
+  
+  return b;
+}
+
+%% Correct entries where there is a mismatch in end punctuation
+%% in msgid and msgstr or in the case of the first characters or
+%% an incongruity between begin and end blanks, optionally mark
+%% those messages fuzzy for an easy review.
+private define check_orto (file)
+{
+  variable msgid = "", msgid_pl = "", msgstr = "", msgstr_pl = "", kw = "";
+  variable entries_arr, entries_hash, header, i, obsolete, entry_hash;
+  variable msgstr_c = "", msgstr_c_pl = "";
+  
+  (entries_arr, obsolete) = po2arr (file_as_str (file));
+  header = entries_arr[0];
+  entries_arr = entries_arr[[1:]];
+  entries_hash = array_map (Assoc_Type, &hash_entry, entries_arr);
+  
+  _for i (0, length (entries_hash)-1, 1)
+  {
+    entry_hash = entries_hash[i];
+    msgid = entry_hash["msgid"];
+    
+    if (strlen (entry_hash["msgstr[0]"]))
+    {
+      msgid_pl = entry_hash["msgid_plural"];
+      msgstr =  entry_hash["msgstr[0]"];
+      msgstr_pl = entry_hash["msgstr[1]"];
+      (, msgid_pl) = prep_str (msgid_pl);
+      (, msgstr_pl) = prep_str (msgstr_pl);
+    }
+    else
+      msgstr = entry_hash["msgstr"];
+    
+    (kw, msgstr) = prep_str (msgstr);
+    (, msgid) = prep_str (msgid);
+    
+    if (pcre_string_match (msgid, "[[:alpha:]]\\|[[:alpha:]]"))
+      continue;
+    
+    if (strlen (msgstr))
+    {
+      % msgstr_c = align_endchar_punct (msgid, msgstr);
+      % msgstr_c = align_blanks (msgid, msgstr_c, "beg");
+      % msgstr_c = align_blanks (msgid, msgstr_c, "end");
+      % msgstr_c = align_case (msgid, msgstr_c);
+      % msgstr_c = dbl_word (msgstr_c);
+      
+      % if (msgstr_c != msgstr)
+      if (nblanks_mismatch (msgid, msgstr))
+      {
+        % vmessage (msgid); exit (1);
+        entry_hash["msgstr"] = concat_kw_str (kw, post_prep_str (msgstr));
+        if (Fuzzy_Orto_Corrected > 0)
+					entry_hash = flag_fuzzy (entry_hash);
+      }
+    }
+    % if (strlen (msgstr_pl))
+    % {
+    %   msgstr_c_pl = align_endchar_punct (msgid_pl, msgstr_pl);
+    %   msgstr_c_pl = align_blanks (msgid_pl, msgstr_c_pl, "beg");
+    %   msgstr_c_pl = align_blanks (msgid_pl, msgstr_c_pl, "end");
+    %   msgstr_c_pl = align_case (msgid_pl, msgstr_c_pl);
+    %   if (msgstr_c_pl != msgstr_pl)
+    %   {
+    %     entry_hash["msgstr[1]"] = concat_kw_str (kw, post_prep_str (msgstr_c_pl));
+    %     if (Fuzzy_Orto_Corrected > 0)
+		% 			entry_hash = flag_fuzzy (entry_hash);
+    %   }
+    % }
+  }
+  
+  entries_arr = array_map (String_Type, &assemble_entry, entries_hash);
+  entries_arr = [header, entries_arr];
+  
+  if (length (obsolete))
+    entries_arr = [entries_arr, obsolete];
+  
+  return printf ("%s", strjoin (entries_arr, "\n\n"));
+}
+
+
+%% Grep for a string in a po-file. Highlight matches.
+private define grep_pofile ()
+{
+  variable  m, beg, end, key = "", entry, file, srchpat, entries_hash, elem;
+  variable matches = {}, elems = {}, elem_arr = {}, entries = {};
+  variable args = __pop_args (_NARGS);
+  
+  args = [__push_args (args)];
+  file = args[-1];
+  srchpat = args[-2];
+  entries_hash = create_entries_hash (file);
+  
+  foreach (args)
+  {
+    variable arg = ();
+    switch (arg)
+    { case "-i": srchpat = "(?i)" + srchpat; }
+    { case "-w": srchpat = "\\b" + srchpat + "\\b"; }
+    { case "-iw" or case "-wi": srchpat = "(?i)" + "\\b" +  srchpat + "\\b"; }
+    { case "-c": key = "all_cmts"; }
+    { case "-d": key = "msgid"; }
+    { case "-s": key = "msgstr"; }
+    { case "-t": key = "msgctxt"; }
+    { case "-u": key = "trans_cmts"; }
+    { case "-x": key = "extr_cmts"; }
+  }
+  
+  ifnot (strlen (key))
+    key = "all_elems";
+  
+  try
+    variable p = pcre_compile (srchpat);
+  catch ParseError:
+    exit_error ("Invalid regular expression");
+  
+  variable i = 0;
+  
+  _for i (0, length (entries_hash)-1, 1)
+  {
+    if (pcre_exec (p, entries_hash[i][key], 0))
+    {
+      do
+      {
+        m = pcre_nth_match (p, 0);
+        beg = m[0];
+        end = m[1];
+        
+        if (end <= beg)
+          break;
+        
+        if (beg > 0)
+          list_append (elem_arr, entries_hash[i][key][[0:beg-1]]);
+        
+        list_append (elem_arr, strcat ("\e[7m", entries_hash[i][key][[beg:end-1]], "\e[m"));
+        entries_hash[i][key] = entries_hash[i][key][[end:]];
+      }
+      while (pcre_exec (p, entries_hash[i][key], 0));
+      
+      list_append (elem_arr, entries_hash[i][key]);
+      elem_arr = list_to_array (elem_arr);
+      elem = strjoin (elem_arr, "");
+      
+      if (key == "all_elems")
+        list_append (matches, elem);
+      else
+      {
+        entries_hash[i][key] = elem;
+        entry = assemble_entry (entries_hash[i]);
+        list_append (matches, entry);
+      }
+      
+      elem_arr = {};
+    }
+  }
+  
+  if (length (matches))
+  {
+    matches = list_to_array (matches);
+    return printf ("%s", strjoin (matches, "\n\n"));
+  }
+  else
+    exit_error ("nothing found");
+}
+
+%% Count the number of occurences of every word in the msgstrs of a
+%% po-file.
+private define word_stats (file)
+{
+  variable msgstrs, words, keys, values, i, W = Assoc_Type[Integer_Type, 0];
+	
+  (, msgstrs) = isolate_msgstrs (file);
+  
+  words = strtok (strlow (msgstrs), "^\\w");
+	words = words[where (strlen (words) >=2)];
+	_for i (0, length (words)-1, 1)
+		W[words[i]] += 1;
+	
+	keys = assoc_get_keys (W);
+	values = assoc_get_values (W);
+	i = array_sort (values);
+	% array_reverse (i);
+	array_map (Int_Type, &printf, "%d %s\n", values[i], keys[i]);
+}
+
+%% Translate a QT *.ts file from a po-file
+private define po2ts (pofile, tsfile)
+{
+  variable tsfilestr = file_as_str (tsfile);
+  variable postr = file_as_str (pofile);
+  variable key, ts_lines, ts_line, pohash, potrans = "";
+  variable tmpfile = make_tmp_file ("/tmp/tsfile_translated");
+  variable xmllint_err = make_tmp_file ("/tmp/xmllint_err");
+  variable xmllint = check_for_prg ("xmllint"); % fra debian's libxml2-utils
+  variable exit_code = 0, i = 0;
+  variable RM = Assoc_Type[String_Type];
+  variable MU = Assoc_Type[String_Type];
+  
+  MU["_"] = "&amp;";
+  MU["<"] = "&lt;";
+  MU[">"] = "&gt;";
+  RM["&amp;"] = "_";
+  RM["&lt;"] = "<";
+  RM["&gt;"] = ">";
+  
+  (pohash,) = hash_msgids_msgstrs (pofile, 0, 1);
+  ts_lines = strchop (tsfilestr, '\n', 0);
+  
+  loop (length (ts_lines)-1)
+  {
+    if (i == length (ts_lines)-1)
+      break;
+    
+    ts_line = ts_lines[i];
+    
+    %% plural forms in ts files are a little tricky, so skip them
+    %% for now
+    if (string_match (ts_line, "<message numerus", 1))
+    {
+      do
+      {
+        i++;
+        ts_line = ts_lines[i];
+      }
+      while (0 == string_match (ts_line, "<message>", 1));
+    }
+    
+    if (string_match (ts_line, "<source>", 1))
+    {
+      ts_line = str_uncomment_string (ts_line, "<", ">");
+      ts_line = strcat ("\"", strtrim (ts_line), "\"");
+      
+      foreach (RM) using ("keys")
+      {
+        key = ();
+        ts_line = strreplace (ts_line, key, RM[key]);
+      }
+      
+      if (assoc_key_exists (pohash, ts_line))
+      {
+        potrans = pohash[ts_line];
+        potrans = strtrim (potrans, "\"");
+        
+        foreach (MU) using ("keys")
+        {
+          key = ();
+          potrans = strreplace (potrans, key, MU[key]);
+        }
+      }
+    }
+    
+    if (string_match (ts_line, "<translation", 1))
+    {
+      if (strlen (potrans))
+      {
+        ts_lines[i] = strcat ("<translation>", potrans, "</translation>");
+        potrans = "";
+      }
+    }
+    
+    i++;
+  }
+  
+  tsfilestr = strjoin (ts_lines, "\n");
+  write_string_to_file (tsfilestr, tmpfile);
+  (tsfilestr, exit_code) = syscmd_output_to_string ("xmllint --format $tmpfile 2>$xmllint_err"$);
+  
+  if (exit_code == 0)
+    return printf ("%s", tsfilestr);
+  else
+    exit_error (file_as_str (xmllint_err));
+}
+
+private define print_version_and_exit ()
+{
+  variable prg = path_basename (__argv[0]), license, line;
+  
+  license =
+    ["$prg version: $Version"$,
+     "Copyright (C) 2015: Morten Bo Johansen <mbj@spamcop.net>",
+     "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>",
+     "This is free software: you are free to change and redistribute it.",
+     "\e[31mThere is ABSOLUTELY NO WARRANTY\e[0m\n"];
+  
+  foreach line (license)
+    () = fprintf (stdout, " %s\n", line);
+  
+  exit (1);
+}
+
+private variable Action_Type = struct
+{
+  function,
+  min_args,
+  max_args,
+};
+
+private variable Action_Table = Assoc_Type[];
+
+private define add_action (names, function, min_args, max_args)
+{
+  variable s = @Action_Type;
+  s.function = function;
+  s.min_args = min_args;
+  s.max_args = max_args;
+  
+  foreach (names)
+  {
+    variable name = ();
+    Action_Table[name] = s;
+  }
+}
+
+private define do_spellcheck (name, args)
+{
+  ifnot (__argc == 5)
+  {
+    vmessage ("Usage: slpo -o <outfile.po> %s <infile.po>", __argv[1]);
+    exit (1);
+  }
+
+  return spellcheck (args[0], 1);
+}
+add_action ({"s", "spellcheck"}, &do_spellcheck, 1, 1);
+
+private define do_spellchecklist (name, args)
+{
+  ifnot (__argc == 5)
+  {
+    vmessage ("Usage: slpo -o <outfile.po> %s <infile.po>", __argv[1]);
+    exit (1);
+  }
+  
+  return spellcheck (args[0], 0);
+}
+add_action ({"sl", "spellcheck-list"}, &do_spellchecklist, 1, 1);
+
+private define do_diff (name, args)
+{
+  return po_diff (args[0], args[1]);
+}
+add_action ({"d","diff"}, &do_diff, 2, 2);
+
+private define do_apertium_translate (name, args)
+{
+  if (__argc == 4)
+    return apertium_translate (args[0], args[1]);
+  
+  return apertium_translate (, args[0]);
+}
+add_action ({"a","apertium"}, &do_apertium_translate, 1, 2);
+
+private define do_apertium_update (name, args)
+{
+  return apertium_update (args[0], args[1], 0);
+}
+add_action ({"au","apertium-update"}, &do_apertium_update, 2, 2);
+
+private define do_apertium_update_fuzzy (name, args)
+{
+  return apertium_update (args[0], args[1], 1);
+}
+add_action ({"af","apertium-update-fuzzy"}, &do_apertium_update_fuzzy, 2, 2);
+
+private define do_get_bugreport_info (name, args)
+{
+  return get_bugreport_info ();
+}
+add_action ({"b","bugreport"}, &do_get_bugreport_info, 0, 0);
+
+private define do_check_orto (name, args)
+{
+  return check_orto (args[0]);
+}
+add_action ({"c","check-orto"}, &do_check_orto, 1, 1);
+
+private define do_filter_msgstrs (name, args)
+{
+  return msgexec (args[0], args[1]);
+}
+add_action ({"e","exec"}, &do_filter_msgstrs, 2, 10);
+
+private define do_replace_in_msgstrs (name, args)
+{
+  return replace_in_msgstrs (args[0], args[1], args[2]);
+}
+add_action ({"r","replace"}, &do_replace_in_msgstrs, 3, 3);
+
+private define do_replace_from_list (name, args)
+{
+  return replace_from_list (args[0], args[1]);
+}
+add_action ({"rl","replace-from-list"}, &do_replace_from_list, 2, 2);
+
+private define do_validate (name, args)
+{
+  return validate (args[0]);
+}
+add_action ({"v","validate"}, &do_validate, 1, 1);
+
+private define do_grep_pofile (name, args)
+{
+  return grep_pofile ([args]);
+}
+add_action ({"g", "grep"}, &do_grep_pofile, 2, 5);
+
+private define do_word_stats (name, args)
+{
+  return word_stats (args[0]);
+}
+add_action ({"ws", "word-stats"}, &do_word_stats, 1, 1);
+
+private define do_po2ts (name, args)
+{
+  return po2ts (args[0], args[1]);
+}
+add_action ({"ts", "po2ts"}, &do_po2ts, 2, 2);
+
+private define do_comp_init (name, args)
+{
+  return init_with_compendium (args[0]);
+}
+add_action ({"ci","comp-init"}, &do_comp_init, 1, 1);
+
+private define do_comp_add_file (name, args)
+{
+  return add_file_to_compendium (args[0]);
+}
+add_action ({"cf","comp-add-file"}, &do_comp_add_file, 1, 1);
+
+private define do_comp_add_dir (name, args)
+{
+  return add_dir_to_compendium (args[0]);
+}
+add_action ({"cd","comp-add-dir"}, &do_comp_add_dir, 1, 1);
+
+define slsh_main ()
+{
+  read_config ();
+  
+  %% Get compendium file to use if it is defined in the enviroment
+  ifnot (NULL == getenv ("SLPOCOMP"))
+    SLpo_Compendium = getenv ("SLPOCOMP");
+  
+  %% Get apertium language pair if it is defined in the enviroment
+  ifnot (NULL == getenv ("APERTIUM_LANGS"))
+    Apertium_Langs = getenv ("APERTIUM_LANGS");
+  
+  if (__argc == 1) print_help_and_exit ();
+  
+  % Use cmdopt to process options
+  variable outfile = NULL;
+  variable c = cmdopt_new ();
+  c.add ("v|version", &print_version_and_exit);
+  c.add ("h|help", &print_help_and_exit);
+  c.add ("o|output-file", &outfile; type="str");
+  
+  variable i = c.process (__argv, 1);
+  
+  if (i == __argc)
+    print_help_and_exit ();
+  
+  variable action = __argv[i];
+  variable action_args = __argv[[i+1:]];
+  
+  ifnot (assoc_key_exists (Action_Table, action))
+  {
+    () = fprintf (stderr, "Unsupported action: \"%s\" (try slpo -h)\n", action);
+    exit (1);
+  }
+  
+  variable s = Action_Table[action];
+  variable tmpfile = make_tmp_file ("/tmp/slpo_tmpfile");
+  
+  %% Read from stdin by way of a temporary file
+  if ((length (action_args)) && (action_args[-1] == "-"))
+  {
+    write_string_to_file (strjoin (fgetslines (stdin), ""), tmpfile);
+    action_args[-1] = tmpfile;
+  }
+  
+  %% If number of action arguments is greater than the allowed number
+  %% of arguments to the function, then assume it to be a globbing
+  %% pattern that has been expanded to more than one file by the shell.
+  %% It uses GNU parallel.
+  if ((length (action_args)-s.max_args) > 1)
+  {
+    variable slpo = __argv[0];
+    variable parallel = check_for_prg ("parallel");
+    variable files = action_args[[s.max_args-1:]];
+    
+    action_args = action_args[[0:s.max_args-2]];
+    action_args = strjoin (action_args, " ");
+    files = strjoin (files, " ");
+    () = fprintf (stderr, "\n\e[32m%s\e[0m\n", "Starting parallel execution on files ...");
+    () = system (sprintf ("%s --no-notice --joblog=slpo-jobs %s %s %s ::: %s",
+                          parallel, slpo, action, action_args, files));
+    
+    () = fprintf (stderr, "\n\e[32m%s\e[0m\n",
+                  "Joblog saved in the file \"slpo-jobs\".\n" +
+                  "Column with \"Exitval\" will show if the command failed on some files\n" +
+                  "An exit value of \"1\" means it failed.");
+    
+    exit (0);
+  }
+  
+  ifnot (s.min_args <= length (action_args) <= s.max_args)
+  {
+    () = fprintf (stderr, "Expecting between %d and %d arguments for action \"%s\" (see: slpo -h)\n",
+                  s.min_args, s.max_args, action);
+    exit (1);
+  }
+  
+  % vmessage ("%S %S %S", s.function, action, action_args);
+  % exit (0);
+  variable out = (@s.function) (action, action_args);
+  
+  if (out == NULL)
+    return;
+  if (outfile == NULL)
+    return out;
+  
+  % if (outfile == NULL)
+  %   () = fprintf (stdout, "%s\n", out);
+  % else
+  {
+    ifnot (0 == file_type (outfile, "reg"))
+    {
+      ifnot (get_y_n ("$outfile already exists, overwrite"$))
+        return;
+    }
+    write_string_to_file (out, outfile);
+    () = fprintf (stdout, "%s\n", "output written to $outfile"$);
+  }
+  
+  () = remove (tmpfile);
+  exit (0);
+}

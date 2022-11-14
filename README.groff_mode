@@ -1,0 +1,77 @@
+                                 Description:
+                                 
+groff-mode for the Jed editor is an extension editing mode that facilitates
+the editing of groff/nroff/troff etc. files. It has a colour highlighting
+scheme, but it also has a few other features, such as the toggling of inline
+markup styles, previewing of the file in a pdf-viewer as well as being able
+to convert and install OpenType or TrueType fonts in a chosen user directory
+for use with groff.
+
+                                Installation:
+                                
+Copy groff_mode.sl to directory in your jed library path, e.g.
+/usr/share/jed/lib. If you only have write access to your own home
+directory, then do something like this:
+
+ cd
+ mkdir -p .jed/lib
+ cp groff_mode.sl .jed/lib
+
+In both cases, add the following lines to your ˝/.jedrc:
+
+  %#v+
+  %% groff-mode customization
+  set_jed_library_path (get_jed_library_path () + "," + dircat (getenv ("HOME"), ".jed/lib"));
+  autoload ("groff_mode", "groff_mode");
+  add_mode_for_extension ("groff", "mm");
+  add_mode_for_extension ("groff", "ms");
+  add_mode_for_extension ("groff", "me");
+  add_mode_for_extension ("groff", "mom");
+  add_mode_for_extension ("groff", "mdoc");
+  add_mode_for_extension ("groff", "man");
+  Groff_Pdf_Viewer = "zathura";
+  Groff_Cmd = "groff -Tps -k -K utf-8 -dpaper=a4 -P-pa4";
+  %#v-
+  
+The two last lines specify your pdf-viewer and some parameters to groff.
+If you like them as they are, you don't need to include them, as they are
+already the default. Otherwise, you can change them to your liking.
+
+                                    Usage:
+                                    
+F10 -> Mode will show some menu items of available commands.
+
+For the mode to be autoloaded, it relies on the extension of the file.
+Therefore, if you edit groff files using e.g. the "mm" macro set, then it is
+a good idea to call the file "myfile.mm", then the groff mode will be loaded
+automatically and the -mm parameter passed to groff when compiling the
+document. You can also load the mode with alt-x and then groff_mode.
+
+F9 renders the current buffer in a pdf-viewer. You may keep the rendered
+document open in the pdf-viewer and F9 will update it with no need to save
+the file in between.
+
+"ctrl-c I" will convert and install a TrueType or OpenType font for use with
+groff. You must set the environment variable GROFF_FONT_PATH in your shell
+configuration file. It should only be a single directory. For the bash
+shell, write these two lines to the file, ~/.bashrc:
+
+ GROFF_FONT_PATH=$HOME/.groff-fonts
+ export GROFF_FONT_PATH
+
+Then your fonts will be installed to the hidden directory ~/.groff-fonts
+under your home directory. The directory in the GROFF_FONT_PATH variable is
+just complementary to the hard-coded font paths in groff so it doesn't
+override anything.
+
+To have an environment variable propagated to the X environment for use with
+xjed, you might enter the two lines above into the file, ~/.xprofile.
+
+    Usage With the "tabcomplete" extension from jedmodes.sourceforge.net:
+ 
+ (todo)
+
+Send comments, suggestions or bug reports to me:
+
+  Morten Bo Johansen
+  mbj at mbjnet dot dk

@@ -1,0 +1,647 @@
+                     ***KEYBINDINGS FOR PO_MODE***
+
+          NAVIGATION:                              MODIFICATION:
+
+b        - scroll up one page        _             - undo
+f        - next fuzzy                TAB or ENTER  - edit entry
+F        - previous fuzzy
+@        - show current entry no.    w             - copy msgstr
+g        - go to entry number        y             - insert msgstr
+l        - toggle limited view       Backspace     - flag entry fuzzy
+n        - next entry                ESC-Backspace - remove fuzzy flag
+o        - next obsolete             ctrl-? z      - flag all entries fuzzy
+O        - previous obsolete         ESC-Enter     - copy msgid to msgstr
+p        - previous entry            DEL           - delete obsolete entry
+t        - next translated           E             - edit entire file
+T        - previous translated       H             - replace headers
+u        - next untranslated         ctrl-? k      - cut msgstr
+U        - previous untranslated     ctrl-? l      - replace from listfile
+ESC-#    - next translator comment   R             - replace in msgstrs
+.        - top justify entry         #             - edit translator comment
+space    - next unfinished entry     ctrl-? #      - remove translator comment
+                                     A             - Translate w/Apertium
+                                     ctrl-? A      - Update Untranslated w/Apertium
+                                     ctrl-? F      - Update Untranslated/Use Fuzzy w/Apertium
+                                     ctrl-? .      - detect some ortograhpic
+                                                     errors
+           
+           COMPENDIUMS:                              MISC:
+
+ctrl-? a - add buffer to comp.       c             - compile *.po -> *.mo
+ctrl-? c - init. w/compendium(s)     C             - decompile *.mo -> *.po
+ctrl-? d - add dir to compendium     G             - grep in source dir 
+ctrl-? p - set compendium            ctrl-? s      - interactive spell check
++        - make current translation  L             - list and correct misspelled words
+           preferred in compendium   M             - mail team or robot
+/        - translate single entry    s             - view source reference  
+           from compendium           S             - set source path        
+                                     V             - validate file          
+                                     D             - create and write diff between two po-files
+                                     d             - look up word in wordlist(s)
+                                     I             - count words and characters
+                                     ctrl-? E      - change encoding        
+                                     ctrl-? u      - update po-file w/newer 
+                                     ctrl-? i      - check in file w/RCS
+                                     ctrl-? o      - check out file w/RCS
+                                     ctrl-? t      - count number of word
+                                                     occurences in msgstrs
+                                     \             - toggle wrapping        
+                                     =             - po statistics          
+                                     ?             - show this help file
+
+
+                  ***KEYBINDINGS FOR PO_EDIT_MODE***
+
+TAB            - finish editing entry
+ctrl-c ctrl-c  - finish editing entry
+ctrl-c ctrl-k  - discard changes
+
+                    ***MOUSE ACTIONS IN PO_MODE***
+
+- left button double click: look up translation for word at mouse point in
+  wordlist. May only work in xjed.
+
+NOTE: The question mark in the "ctrl-?" sequence refers to the binding
+for the letter in the "reserved key prefix" which varies with editor
+emulations. For Emacs and Jed emulations it is 'c' so you can exchange
+ctrl-? with ctrl-c in the key bindings above. In the references to
+keybindings that follows herein, "ctrl-c" is used. You must type
+ctrl-c, release both keys and then type the letter.
+
+The "esc" key can generally be substituted with the "alt" key so
+"esc-enter" is the same as "alt-enter"
+
+
+                            ***Important***
+                   
+See section 11. Suggested Editing Work Flow
+
+                   
+                   1. Installation and Customization
+
+                           1.1. Installation
+
+First, of course, you need to install the Jed editor. It is packaged
+for every Linux-distribution, I believe, so you can just use your
+package manager to install it. On Debian based systems, which include
+Ubuntu, you would do:
+ 
+   sudo apt-get install jed xjed
+   
+which will install both the terminal and X Window versions of the
+editor.
+
+Copy the files po_mode.sl and po_mode.hlp to a directory in your jed
+library path, e.g. /usr/share/jed/lib. First make sure the permissions
+on the files are sufficient:
+
+   chmod 0644 po_mode.sl po_mode.hlp
+   sudo cp po_mode.sl po_mode.hlp /usr/share/jed/lib
+
+If you don't have write access to any other directories than your
+own home directory, then do the following:
+
+   cd
+   mkdir -p .jed
+   cp po_mode.sl po_mode.hlp ~/.jed
+
+In your ~/.jedrc add the following lines:
+
+   private variable user_libdir = dircat (getenv ("HOME"), ".jed");
+   set_jed_library_path (strcat (user_libdir, ",", get_jed_library_path ()));
+
+Finally, in the file ~/.jedrc or /etc/jed.conf, insert the following lines:
+
+  autoload ("po_mode", "po_mode");
+  add_mode_for_extension ("po", "po");
+  add_mode_for_extension ("po", "pot");
+  
+Then upon loading a po-file into the editor, the mode will be
+activated automatically.
+
+                   1.1.1. Optional Helper Programs:
+
+Install the following programs. You can do without them, but much
+functionality will be lost then:
+
+  - the gettext package (msgfmt, msgcat, msgmerge, msgconv, etc.)
+  - aspell or hunspell
+  - the file(1) utility
+  - rcs, the Revision Control System
+  - wdiff, the word difference utility
+  - grep.sl from http://jedmodes.sourceforge.net/mode/grep/
+  - apertium, the machine translation system plus relevant
+    dictionaries.
+
+
+                          1.2. Customization:
+
+You should copy/paste the following block of variables into your
+~/.jedrc or /etc/jed.conf and edit their values to match your own
+settings. Below, the settings are exemplified with mine:
+
+%% --- User variables specific for po_mode - copy/paste begin ---
+
+variable
+  Translator                  = "Morten Bo Johansen <mbj@spamcop.net>",
+  Team_Email                  = "<dansk@klid.dk>",
+  Language                    = "Danish",
+  LangCode                    = "da",
+  CountryCode                 = "dk",
+  Encoding                    = "utf-8",
+  SrcBaseDir                  = "/home/mojo/src",
+  Apertium_Langs              = "nob-dan",
+  Spell_Prg                   = "aspell,
+  Compare_With_Languages      = "sv,nb,de,fr,nl",
+  Compendium                  = "/home/mojo/.compendium_pomode";
+
+%% --- User variables specific for po_mode - copy/paste end ---
+
+%% Other useful variables, paste into ~/.jedrc
+
+variable
+  Grep_Cmd = "grep -H -n -r -i",
+  Dabbrev_Default_Buflist = 1,
+  Dabbrev_Look_in_Folds = 1;
+
+Explanation of the user variables:
+
+- Translator: full name and email address of you, the translator.
+
+- Language: your language - use English adjective, e.g. "German".
+
+- LangCode: http://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
+
+- CountryCode: http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+
+- Team_Email: email address of your language team.
+
+- Encoding: The default character set encoding in the header of the po-file
+            also used as encoding in the gettext compendium.
+
+- Compendium: Path to gettext compendium file.
+
+- SrcBaseDir: The path to the directory where you usually keep the
+              sources for the programs you translate.
+
+- Compare_With_Languages: po-files in languages that you want to compare
+                          your translations with. Comma separated list of
+                          iso country codes as listed in
+                          http://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
+                          Change the codes below to your liking. NB! This
+                          requires that the msgid numbers are in sync
+                          between all the po files. If this is not the case
+                          it can usually be accomplished by running "make
+                          update-po" in the ../po subdirectory of the
+                          sources directory This example will compare with
+                          Swedish, Norwegian Bokmål, German, French and
+                          Dutch.
+
+- Apertium_Langs: Language pair for machine translation system, Apertium
+                  E.g. "en-es" will use the English-to-Spanish pair.
+
+                          1.2.1. Mode Hooks:
+
+There are two mode_hooks that may be used to control some settings
+relating to the po_mode and po_edit_mode buffers respectively. Thus in
+the file ~/.jedrc or /etc/jed.conf you might insert e.g.:
+
+   define po_mode_hook ()
+    {
+       use_dfa_syntax (1);
+    }
+
+   define po_edit_mode_hook ()
+    {
+       ispell_change_dictionary ("deutsch");
+       flyspell_mode;
+       set_abbrev_mode (1);
+       local_setkey ("dabbrev", "\ea"); % only if you haven't set it globally
+    }
+
+The former enables DFA syntax highlighting that conveniently draws
+attention to important things like blank space at beginning/end of
+lines and newline escape sequences. The variables in the
+"po_edit_mode_hook" enable spell checking "on the fly" by highlighting
+misspelled words in the edit buffer, if you installed flyspell.sl from
+http://jedmodes.sourceforge.net/mode/ispell/
+
+"set_abbrev_mode" enables "dynamic abbreviations in the editing buffer
+which means that you can use a keyboard shortcut such as e.g. "alt-a" to
+complete a word
+
+                  2. Notes On Editing (po_edit mode):
+
+Hit <tab> or <enter> on an entry to open the window with the editing
+buffer. When you have finished the translation, then hit <tab> again
+to close the editing window. You can also hit ctrl-c ctrl-c, i.e.
+press the control key while hitting 'c' twice.
+
+To a large extent this mode is emulating the Emacs po-mode, and
+as you may see from the key bindings above, the library actually
+contains two modes: when you read the po-file into the editor, you are
+in "po_mode" and the file is read-only. When you edit an entry, a new
+buffer is opened and you enter "po_edit_mode" where you are actually
+filling in the translation or editing an existing translation.
+
+The entries are either single-line or multi-line strings. Multi-line
+strings are always terminated at the point at which they are to be
+wrapped by the C-like newline escape character "\n". If there is one
+or more of these escape sequences in the msgid, it is a multi-line
+string. Thus the two types of strings may look like this:
+
+  Example single-line string:
+
+  msgid ""
+  "You may also specify modifiction to the actions which will be taken.  To do "
+  "so, type an action character followed by one or more package names (or "
+  "patterns).  The action will be applied to all the packages that you list. "
+  "The following actions are available:"
+
+  Example multi-line string:
+
+  msgid ""
+  "Usage: %s [OPTION]... [FILE]...\n"
+  "\n"
+  "Convert FILE(s) or standard input to PostScript.\n"
+  "\n"
+  "Mandatory arguments to long options are mandatory for short options too.\n"
+  "Long options marked with * require a yes/no argument, corresponding\n"
+  "short options stand for `yes'.\n"
+
+For single-line strings, just type along with the line being wrapped
+at your chosen wrap point and with a single space being inserted
+automatically at the end of the line, so you can follow what you're
+typing in.
+
+For multi-line strings always use the enter-key to break the line at
+the point where you want the newline escape sequence "\n" to be
+inserted.  Do not insert trailing newline escape sequences or spaces and
+do not escape double quotes or envelop the translation in double quotes.
+It is all taken care of automatically when you leave the po_edit buffer.
+
+To repeat: In general you do not need to worry about anything relating
+to the formatting of the message string, it is all taken care of
+automatically.
+
+                          3. Spell Checking:
+
+Aspell and hunspell are supported.
+
+You must of course install the spell dictionaries for your language.
+In addition you should also install an English spell dictionary, since
+there are often English words in the msgstrs that should not be
+translated. The spell checking in this mode tries with both your own
+language and English, if an English dictionary is found, thus weeding
+out all the false English positives that would occur if spell checking
+was only done in your own language.
+
+Keeping your work free from misspellings is an important part of the
+work of a translator. You can spell check the entire po-file
+interactively, isolating the msgstrs from within po_mode (typing
+ctrl-c s). Better still, probably is to type 'L' which will pop up a
+list of misspelled words. You can then hit enter on one such word and
+correct its spelling from the resulting prompt. The word will then be
+corrected throughout the msgstrs of the po-file and then removed from
+the list. Typing '-' on a word in the list will remove the word from
+the list. Typing '+' on a word in the list will add the word to the
+spell program's personal wordlist, so it will not be seen as a
+misspelling in the future. 'q' closes the list window.
+
+Alternatively there is a cool mode called flyspell that will highlight
+misspelled words as you go ("on the fly"). See above under 1.2.1. Mode
+Hooks.
+
+
+    3.1 Check for minor ortographical or consistency errors
+    
+ctrl-c . (period) will parse the file for such minor errors. Affected
+entries will be marked fuzzy and tagged with a translator's comment
+that has the "[po-lint]" label prepended to it. The comment will be
+removed upon unfuzzying the entry (alt-backspace). The checks are the
+following:
+
+- mismatch in case between first characters in msgid and msgstr
+- mismatch in end punctuation
+- mismatch in length of beginning or trailing blank space
+- identical adjacent words (double words) in msgstr
+- double space between words in msgstr
+- inconsistent translations of otherwise identical msgids
+
+
+                            4. Compendiums:
+
+Compendiums are files with translatable strings and their accompanying
+translations. You can use them to translate a whole po-file or a
+single entry automatically.
+
+                       4.1 Create a Compendium:
+                      
+A compendium can be created with the contents of the current buffer
+(the contents of the file you are looking at in the editor) using the
+shortcut "ctrl-c a". You will be asked if you want to make all the
+translations "immutable", i.e. they will never be overwritten when
+updating the compendium later.
+
+An entire directory of po-files can be added to a compendium in one
+fell swoop using the shortcut "ctrl-c d".
+
+Menu items are available to update compendiums with the contents of
+the current buffer or to update the compendium with a directory of
+po-files. In the latter case only files with the ".po" extension will
+be added and an integrity check will be done on each file before it is
+added to the list of files to go into the compendium.
+
+When updating the compendium, you will be asked if you want to
+overwrite matching entries in the compendium. Answering yes here will
+let translations in the updating file(s) for msgids matching those in
+the compendium be overwritten. Conversely, answering no will keep
+translations in the compendium for matching msgids intact.
+
+If you feel that a translation fetched from the compendium is
+annoying, you can either edit the compendium manually or you can just
+modify the translation to your liking and then hit '+' in po-mode,
+then the new translation will overwrite the old one in the compendium
+and be used for the future. You can also update the compendium as per
+above by letting the entries be overwritten when you have finished
+editing the file.
+
+A translation for the current entry may be fetched from the compendium
+by typing "/".
+
+             6. View Source Files or Grep in Source Files:
+
+In addition to viewing the source file(s) referenced in the current entry,
+you can also grep for a string in the source files and get a window with a
+listing of all files that contain that expression which you can then select
+for easy viewing: If you have highlighted a string, e.g. with the mouse,
+this string will be seached for, otherwise the word at point will be seached
+for. The highlighting must be done with Jed's mark_region function, i.e. you
+should see an 'm' on the status line. The function is bound to 'G'.
+
+I recommend putting this line into your .jedrc:
+
+   variable GrepCommand = "grep -H -n -r -i";
+
+for a recursive, case-insensitive search.
+
+You must get grep.sl from http://jedmodes.sourceforge.net/grep/
+
+               7. View a translation in other languages
+               
+Typing 'm' on an entry will open a window with translations for that
+entry in languages you have chosen in the configuration variable
+Compare_With_Languages (see above). Of course it requires that the
+po-files for these languages are installed. Typically you would have a
+source archive for the program whose po-file you are translating
+installed under ~/src (see the SrcBaseDir variable above). You will
+be asked where to look for the po-files in the other languages. They
+typically reside in the "/po" subdirectory of the source archive.
+In any case, the names of the files that you want to compare with
+must have the two-letter language code in them. For instance both
+"be.po" and "gtkam-0.2.0.be.po" will be detected if you want to
+compare with Belarussian.
+
+          8. Limit Display to Entries Containing Expression:
+
+If you are familiar with the mail user agent Mutt, you will probably
+have cherished its "limit" function whereby you can narrow the index
+of mail messages to a list containing a specified expression. A limit
+function is also useful in the context of editing po-files. The limit
+function in this mode lets you narrow the display to a list of entries
+containing a certain expression. Like for the grep function mentioned
+above the limit function also acts on either the word at point, a
+highlighted string or a typed in expression. The function is bound to
+'l' by default (like in Mutt), and typing 'l' again in the limited
+view toggles off the limitation. It is of course useful, because it
+lets you see a uniform list of entries containing your expression, so
+you can e.g. easily compare translations containing this expression to
+see if it is translated consistently in all of them, or you can limit
+the display to similarly looking msgids in order to quickly copying
+translations between them.
+
+Hint: To limit to expressions that cross lines, highlight that
+expression across the lines and then type 'l' to limit to it.
+
+                         9. Gettext Functions:
+
+Various wrapper functions using the gettext utilities are included for
+convenience, these are:
+
+- validation: parse po-file for syntax errors with msgfmt. Error 
+  entries will be marked fuzzy.
+
+- compile: compile current buffer into a binary mo-file with msgfmt.
+
+- decompile: decompile a binary mo-file into a po-file with msgunfmt
+
+- wrap/unwrap: wrap/unwrap entries with msgcat.
+
+- update: update current po-buffer to a newer version with msgmerge.
+
+- convert: convert character encoding with msgconv
+
+- flag all entries fuzzy with msgattrib
+
+They are all available from the menu.
+
+                    10. Other convenience functions
+                    
+- Check in the current po-file with RCS
+
+- Write a diff file between two versions. The other version may
+  be under RCS.
+
+- Replace a word or a string in the msgstrs.
+
+- Replace words or strings in the msgstrs from a listfile. The listfile
+  must have the format:
+  
+      word/string to be replaced : word/string replacement
+      
+  each on a line by itself. I.e. words and replacements listed
+  pairwise separated by a colon. The blankspace around the colon
+  does not matter. 
+  
+  If your own language has a closely related language then you could
+  maintain such a file with translations of words/string from your own
+  language to that language. E.g. a Russian translator might have a
+  file with Russian translations of Ukranian words, since the two
+  languages are closely related and then run a Ukranian po-file
+  through this function,
+  
+  The function "Count Occurences of Words", available from the menu,
+  is handy in determining the frequency of words in connection with
+  maintaining such a listfile.
+
+- Translate or update po-file with the machine translation system, Apertium
+
+
+
+                    11. SUGGESTED EDITING WORK FLOW
+                    
+
+
+a) Begin by creating a subdirectory "src" under your home directory to
+   hold the source archives for the programs you are translating.
+   
+      mkdir -p $HOME/src
+      
+   Switch to that directory and fetch the source archive of the
+   program you are translating, e.g. with
+   
+      apt-get source <program>
+      
+   or any other command that will fetch the sources. Unpack, if neccesary,
+   the source archive under $HOME/src.
+
+b) Install the machine translation system, Apertium, and all the
+   language pairs that translate into your language. For instance
+   for Danish, I have these installed:
+   
+     nno-dan
+     nob-dan
+     swe-dan
+
+   If a po-file has already been translated into, say Norwegian
+   Bokmål (nob), then I can load that file into Jed and type 'A' (or
+   from the menu: Mode -> Modify -> Translate w/Apertium) to have it
+   translated into Danish. The quality and comprehensiveness of these
+   language pairs varies, but the Spanish language pairs in particular
+   seem to be of both high quality and to be extremely comprehensive,
+   so if you are a Spanish translator, it seems that you can get
+   almost all of the work done by Apertium. A Spanish user would make
+   sure that the language pair "en-es" was installed, then fetch the
+   pot-file (the empty original message catalogue) for the program's
+   messages to be translated, load it into Jed and then type 'A'. All
+   the msgstrs will first be pre-filled with the English original
+   msgid strings and then translated into Spanish. Same procedure
+   should be used by anyone with a language pair that translates from
+   English into his own language.
+   
+   The Translate w/Apertium function, bound to 'A' is meant to be used
+   on a whole po or pot-file. Another Apertium function exists to
+   update untranslated entries in a po-file with Apertium-translated
+   entries for matching msgids that are fetched from a reference file.
+   This function is bound to "ctrl-c A" (or from the menu: Mode ->
+   Modify -> Update Untranslated w/Apertium). So let us say that I
+   have a po-file that I have already partially translated into Danish
+   and a more updated version of this po-file exists in Norwegian,
+   then I could type "ctrl-c A", choose the Norwegian file (the
+   reference file) from the prompt to have the untranslated entries in
+   my own file filled out with the Norwegian translations which in
+   turn are then translated into Danish with Apertium. A variant of
+   this function exists whereby also fuzzy translations from the
+   reference file are translated with Apertium and transferred to your
+   own file. It is bound to "ctrl-c F" (or from the menu: Mode ->
+   Modify -> Update Untranslated/Use Fuzzy w/Apertium) All entries
+   that are translated with these two latter functions are marked
+   fuzzy.
+
+C) Create a compendium (see above) from as many different po-files
+   that have been translated into your language as you can find. You can
+   get a lot from the site of the Free Translation Project. This command
+   will get all of the Danish translations from that site and place them
+   under the "./translationproject.org/PO-files/da" subdirectory:
+   
+     wget -r --no-parent --reject "index.html*" \
+     http://translationproject.org/PO-files/da/
+
+   Just change the trailing "da" subdirectory to your own ISO_639
+   country code (see section 1.2).
+
+   Then open a po-file in jed/xjed and type "ctrl-c d" to add a whole
+   directory of po-files to the compendium. You can also do it from
+   the menu:
+   
+     F10 => Mode => Compendiums and Wordlists => Add Dir to Compendium
+   
+   You will be asked for the path to the po-files. Type in the path
+   above. You can use TAB completion in selecting the path. Since
+   there may be many hundreds of po-files, it may take a little time
+   to add them because they are validated first and duplicate entries
+   are weeded out. (For about 1600 po-files of varying sizes it takes
+   about two minutes to add them to the compendium on my medium fast
+   computer.)
+
+d) Open the po-file you want to translate in jed/xjed. Type "ctrl-c i"
+   to fill out the entries with translations from the compendium you
+   just created. You can also use the menu:
+
+     F10 => Mode => Compendiums and Wordlists => Initialize w/Compendium
+     
+   If your po-file already contained translated entries you will be
+   asked if you want to overwrite them. If the msgid in your po-file
+   was identical to the msgid in the compendium, the compendium's
+   translation will be transferred to your po-file. If there were
+   minor differences such as punctuation and case differences, then
+   the entry will be filled out and marked fuzzy.
+     
+e) Visit the entries that were filled out and review the translations.
+   Use 't' to go to the next translated entry and 'f' to go to the
+   next fuzzy entry. If the entry was flagged fuzzy you may have to
+   make a minor modifiction to the translation. After having done so
+   remove the fuzzy flag with alt-backspace.
+
+f) If you were not satisfied with the translation from the compendium,
+   then modify it to your liking and hit '+'. This will transfer your
+   modified translation to the compendium (you will be asked if you
+   want to overwrite) and at the same time the translation will be
+   marked "immutable". That means that it will not overwritten when
+   you update the compendium later. You can have it changed only by
+   following the same procedure, that is modify the translation and
+   hit '+'.
+
+g) Translate the remaining entries. Be as productive as you can by
+   using 
+          - dynamic word completions (see above). 
+          
+          - if there is only a little to translate in a msgid, then
+            copy it to the msgstr with alt-enter and then modify.
+          
+          - use the editor's native navigation features with convenient
+            keyboard shortcuts in the editing window,
+ 
+          - check translations for a troublesome entry in other
+            languages by typing 'm' (see section 7)
+            
+          - use the source view (bound to 's') to view the source
+            context of the msgid if you are in doubt of its meaning.
+            
+          - use 'l' to limit the view to entries containing a word
+            or an expression if there are many of those and you want
+            to ensure that you have translated them uniformly.
+
+h) Fill out the header by typing 'H'. You must set the configuration
+   variables in section 1.2
+   
+i) Spell check the file. I recommend using a list of misspelled words
+   by typing 'L' and correct the misspelled words by hitting enter on
+   them.
+   
+j) Check punctuation and word case errors by typing "ctrl-c ." (ctrl-c
+   + period).
+   
+k) Validate the file, typing 'V'
+
+l) When all is translated and there are no fuzzy entries left and the
+   file validates with no errors, then 
+   
+   - check the file in with RCS by typing "ctrl-c i". The po-file will
+     be checked in under the ./RCS subdirectory in the directory of the
+     po-file itself. You can then subsequently write diffs between your
+     current po-file and an older version in RCS by typing 'D'. Diffs
+     such as these can be sent to the mailing list of your language team
+     for a review.
+     
+   - finally, add the file to the compendium, with "ctrl-c a". You
+     will be asked if you want to flag all the new translations
+     "immutable" which means that they will not be overwritten on
+     subsequent updates of the compendium.
+
+                               --------
+
+Otherwise the explanation of the keybindings above should, I hope,
+make it clear what functionality is available.
+
+Send comments or suggestions to Morten Bo Johansen <mbj@mbjnet.dk>
