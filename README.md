@@ -6,8 +6,6 @@ _sh.sl_ - A Mode to Edit Shell Scripts
 
 _julia.sl_ - A Mode to Edit Julia Programming Code
 
-_diet_mode.sl_ - A Diet Nutrition Calculator
-
 _po_mode.sl_ - A Mode for Editing Gettext Portable Object Files (*.po)
 
 _groff_mode.sl_ - A Mode for Editing nroff/troff/groff Files
