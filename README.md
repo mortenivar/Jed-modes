@@ -1,5 +1,6 @@
 # Jed-modes
-Some modes I have written for the Jed editor
+Some modes I have written for the Jed editor:
+
 
 sh - A Mode to Edit Shell Scripts
 
