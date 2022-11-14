@@ -2,7 +2,7 @@
 Some modes I have written for the Jed editor:
 
 
-sh - A Mode to Edit Shell Scripts
+_sh.sl_ - A Mode to Edit Shell Scripts
 
 julia - A Mode to Edit Julia Programming Code
 
