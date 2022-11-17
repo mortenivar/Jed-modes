@@ -1,8 +1,5 @@
 % -*- mode: slang; mode: fold -*-
 %
-% FIXME: sidste ord i buffer forbliver rødt ved skift af sprog, selvom
-% det er korrekt stavet
-%
 %{{{ Description, licence, version
 %% aspell.sl, an extension minor mode for the jed editor to spellcheck
 %% a buffer as you type along. It borrows some ideas from flyspell.sl
@@ -14,7 +11,7 @@
 %% Author: Morten Bo Johansen <listmail@mbjnet.dk>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.7.2
+%% Version: 0.7.3
 %%
 %}}}
 %{{{ Custom variables
