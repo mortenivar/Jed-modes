@@ -2,7 +2,7 @@
 %
 % FIXME: sidste ord i buffer forbliver rødt ved skift af sprog, selvom
 % det er korrekt stavet
-%   
+%
 %{{{ Description, licence, version
 %% aspell.sl, an extension minor mode for the jed editor to spellcheck
 %% a buffer as you type along. It borrows some ideas from flyspell.sl
@@ -67,10 +67,10 @@ define _aspell_get_word (delete)
 {
   variable wchars = "\a"R + Extended_Wordchars;
   variable punct = "!?.,:;'`\")]>";
-  
+
   push_spot ();
   bskip_chars (punct); bskip_chars (wchars); push_mark (); skip_chars (wchars);
-  
+
   if (delete)
     bufsubstr_delete ();
   else
@@ -107,11 +107,11 @@ private define get_aspell_dicts ()
 % dictionaries, there is always one whose name conists only of the
 % two-letter ISO-639-1 language code.
 private define aspell_set_dictionary_from_env ()
-{ 
+{
   if (strlen (Aspell_Dict)) return;
 
   variable locale_values = array_map (String_Type, &getenv, ["LANG","LC_MESSAGES","LC_ALL"]);
-  
+
   locale_values = locale_values[where (strlen (locale_values) >= 2)]; % filter out "C"
 
   if (length (locale_values))
@@ -119,7 +119,7 @@ private define aspell_set_dictionary_from_env ()
     foreach (locale_values)
     {
       variable locale_value = ();
-      
+
       try
       {
         if (is_list_element (get_aspell_dicts, locale_value[[0:4]], ','))
@@ -178,7 +178,10 @@ private define aspell_verify_dict ()
 % The parsing of the aspell check word output
 private define aspell_highlight_misspelled (Aspell_Pid, str)
 {
-  ifnot (strtrim (str) == "*")
+  % '*' is for a correctly spelled word found in the wordlist
+  % '-' is for a word recognized as a compound word where its
+  % individual parts are correctly spelled.
+  ifnot ((strtrim (str) == "*") || (strtrim (str) == "-"))
     add_keyword (Aspell_Typo_Table, Word);
 }
 
@@ -205,7 +208,7 @@ define aspell_check_word ()
   Word = aspell_get_word ();
 
   ifnot (strlen (Word)) return;
-  
+
   if (Word == word_prev)
     return flush ("double word");
 
@@ -215,7 +218,7 @@ define aspell_check_word ()
     Checked_Words[Word] = "";
 
   send_process (Aspell_Pid, "${Word}\n"$);
-  get_process_input (2);
+  get_process_input (5);
 }
 
 private define before_key_hook (fun)
@@ -228,7 +231,7 @@ private define before_key_hook (fun)
 private define aspell_setup_syntax ()
 {
   variable bg;
-  
+
   (, bg) = get_color ("normal"); % get the current background color
   set_color ("keyword", Aspell_Typo_Color, bg);
   Aspell_Typo_Table = "Aspell";
@@ -282,35 +285,35 @@ private define aspell_start_flyspell_process ()
 private define aspell_select_from_mini (items_arr)
 {
   variable items_arr_n, len, i, ch, word;
-  
+
   items_arr = strtrim (items_arr);
   len = length (items_arr);
   items_arr_n = String_Type[len];
-  
+
   _for i (0, len-1, 1)
     items_arr_n[i] = strcat (string (i), "|",  items_arr[i]);
-  
+
   if (length (items_arr_n) > 10)
     items_arr_n = items_arr_n[[0:9]];
-  
+
   flush ("c|ancel, a|dd, e|dit, " + strjoin (items_arr_n, ", "));
   ch = getkey ();
-  
+
   if (ch == 'a')
   {
     add_word_to_personal_wordlist ();
   }
   else if (ch == 'e')
     return read_mini ("", "", aspell_get_word ());
-  
+
   else ifnot (isdigit (ch))
     clear_message ();
   else
   {
     i = integer (char (ch));
     len = length (items_arr_n)-1;
-    
-    ifnot (any ([0:len] == i)) 
+
+    ifnot (any ([0:len] == i))
       throw UsageError, "type a digit between 0 and $len"$;
     else
       return items_arr[i];
@@ -346,9 +349,9 @@ private define aspell_auto_replace_word ();
 private define aspell_auto_replace_word (fun)
 {
   ifnot (is_substr (" \r", LASTKEY)) return;
-  
+
   variable repl_word = "", word = "", repl_buf = "", buf = whatbuf ();
-  
+
   Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$Aspell_Lang"$);
   repl_buf = " *$Aspell_Replacement_Wordlist*"$; % leading space trick hides the buffer
 
@@ -402,9 +405,9 @@ define aspell_suggest_correction ()
   % variable cmd = "aspell --sug-mode=ultra --run-together --run-together-limit=2 --run-together-min=3 -l $Aspell_Lang -d $Aspell_Dict -a -c 2>/dev/null"$;
 
   word = strtrim (aspell_get_word ());
-  
+
   ifnot (strlen (word)) return;
-  
+
   out = strtrim (strjoin (fgetslines (popen ("echo $word | $cmd"$, "r"))));
 
   try
@@ -413,14 +416,14 @@ define aspell_suggest_correction ()
       return flush ("correct");
   }
   catch IndexError;
-  
+
   out = strchop (out, ':', 0);
 
   if (length (out) > 1)
     suggs = strchop (out[1], ',', 0);
   else
     return flush ("no suggestion");
-  
+
   suggs = strtrim (suggs);
   sugg = aspell_select_from_mini (suggs);
 
@@ -448,7 +451,7 @@ public define aspell_buffer ()
 
   variable
     tmpfile = make_tmp_file ("aspell_buffer"),
-    cmd = "aspell list $Aspell_Mode -B -d $Aspell_Dict <$tmpfile"$,
+    cmd = "aspell list $Aspell_Mode -C -d $Aspell_Dict <$tmpfile"$,
     misspelled_words_n = String_Type[0],
     misspelled_words = String_Type[0],
     out = "",
@@ -457,13 +460,13 @@ public define aspell_buffer ()
   out = strjoin (buf_as_words_array (), "\n");
   () = write_string_to_file (out, tmpfile);
   misspelled_words = strtrim (fgetslines (popen (cmd, "r")));
-  
+
   _for i (2, 48, 1) % 48 is the keyword length limit.
   {
     misspelled_words_n = misspelled_words[where (strbytelen (misspelled_words) == i)];
     misspelled_words_n = misspelled_words_n[array_sort (misspelled_words_n)];
     misspelled_words_n = strjoin (misspelled_words_n, "");
-    
+
     ifnot (strlen (misspelled_words_n)) continue;
     () = add_keywords (Aspell_Typo_Table, misspelled_words_n, i, 0);
   }
@@ -515,7 +518,7 @@ define init_aspell ()
 {
   if (NULL == search_path_for_file (getenv ("PATH"), "aspell"))
     return flush ("aspell is not installed or not in $PATH, spell checking disabled.");
-  
+
   local_unsetkey_reserved ("a");
   local_setkey_reserved ("add_word_to_personal_wordlist", "a");
   local_unsetkey_reserved ("b");
@@ -526,7 +529,7 @@ define init_aspell ()
   local_setkey_reserved ("aspell_suggest_correction", "s");
   local_unsetkey_reserved ("t");
   local_setkey_reserved ("toggle_aspell_flyspell", "t");
-  
+
   aspell_set_dictionary_from_env ();
   aspell_verify_dict ();
   aspell_set_filter_mode ();
