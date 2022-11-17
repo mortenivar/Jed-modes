@@ -39,6 +39,10 @@ custom_variable ("Aspell_Use_Replacement_Wordlist", 0);
 
 % Use tab completion (with tabcomplete.sl)
 custom_variable ("Aspell_Use_Tabcompletion", 0);
+
+% Accept compound words as correctly spelled or not
+custom_variable ("Aspell_Accept_Compound_Words", 1);
+
 %}}}
 %{{{ Autoloads
 autoload ("add_keywords", "syntax");
@@ -181,8 +185,16 @@ private define aspell_highlight_misspelled (Aspell_Pid, str)
   % '*' is for a correctly spelled word found in the wordlist
   % '-' is for a word recognized as a compound word where its
   % individual parts are correctly spelled.
-  ifnot ((strtrim (str) == "*") || (strtrim (str) == "-"))
-    add_keyword (Aspell_Typo_Table, Word);
+  if (Aspell_Accept_Compound_Words)
+  {
+    ifnot ((strtrim (str) == "*") || (strtrim (str) == "-"))
+      add_keyword (Aspell_Typo_Table, Word);
+  }
+  else
+  {
+    ifnot ((strtrim (str) == "*"))
+      add_keyword (Aspell_Typo_Table, Word);
+  }
 }
 
 % Set the aspell checking mode for various types of files.
@@ -442,6 +454,16 @@ define aspell_suggest_correction ()
 % the entire minor mode.
 public define aspell_buffer ()
 {
+  variable tmpfile = make_tmp_file ("aspell_buffer");
+  variable cmd, out = "", i = 0;
+  variable misspelled_words_n = String_Type[0];
+  variable misspelled_words = String_Type[0];
+
+  if (Aspell_Accept_Compound_Words)
+    cmd = "aspell list $Aspell_Mode -C -d $Aspell_Dict <$tmpfile"$;
+  else
+    cmd = "aspell list $Aspell_Mode -B -d $Aspell_Dict <$tmpfile"$;
+
   ifnot (strlen (Aspell_Dict))
   {
     aspell_set_dictionary_from_env ();
@@ -449,13 +471,6 @@ public define aspell_buffer ()
     aspell_set_filter_mode ();
   }
 
-  variable
-    tmpfile = make_tmp_file ("aspell_buffer"),
-    cmd = "aspell list $Aspell_Mode -C -d $Aspell_Dict <$tmpfile"$,
-    misspelled_words_n = String_Type[0],
-    misspelled_words = String_Type[0],
-    out = "",
-    i = 0;
 
   out = strjoin (buf_as_words_array (), "\n");
   () = write_string_to_file (out, tmpfile);
