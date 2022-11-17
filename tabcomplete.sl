@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Revision 0.8.3  2023/04/12
+% Version 0.8.4 2023/11/17
 %
 % Author : Morten Bo Johansen <mbj@mbjnet.dk>
 % License: http://www.fsf.org/copyleft/gpl.html
