@@ -16,7 +16,7 @@ custom_variable("SH_Expand_Kw_Syntax", 0);
 
 private variable
   Mode = "SH",
-  Version = 0.1,
+  Version = 0.2,
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Do_Done_Kws,
@@ -26,7 +26,7 @@ private variable
   SH_Indent_Hash = Assoc_Type[String_Type, ""];
 
 % Keywords that trigger some indentation rule
-SH_Indent_Kws = ["if","fi","else","elif","for","while","case","esac",
+SH_Indent_Kws = ["if","fi","else","elif","for","while","case","esac","do",
                  "done","select","until","then"];
 
 % OR'ed expression of $SH_Indent_Kws
@@ -34,12 +34,12 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 
 % Regular expression for keywords with some added indentation triggers
 % such as parentheses and braces.
-SH_Indent_Kws_Re = strcat("\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
+SH_Indent_Kws_Re = strcat("^.*?\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
                           "|^\\s*\\beval\\b", % 'eval' at begin of line
+                          "|^\\s*(\})\\s*#?", % right brace at begin of line with some blank space allowed
                           "|({)\\s*$", % opening left brace in functions
                           "|^[^$]*({)\\s*#", % same but allow for trailing comment
                           "|^\\s*\\bdo\\b\\s*", % 'do' on begin of line
-                          "|^\\s*(\})", % right brace at begin of line with some blank space allowed
                           "|^\\s*\\)", % right parenthesis at begin of line
                           "|\\(\\s*$" % match an opening left parenthesis
                          );
@@ -127,9 +127,10 @@ private define sh_add_kws_to_table(kws, tbl, n)
   }
 }
 
+create_syntax_table (Mode);
+
 private define sh_setup_syntax()
 {
-  create_syntax_table (Mode);
   variable bg;
   (, bg) = get_color("normal"); % get the current background color
   set_color("keyword", "red", bg);
@@ -137,9 +138,9 @@ private define sh_setup_syntax()
   define_syntax("#", "", '%', Mode); % comments
   define_syntax("([{", ")]}", '(', Mode); % delimiters
   define_syntax('"', '"', Mode);
-  define_syntax('\'', '"', Mode);
   define_syntax('`', '"', Mode);
-  define_syntax('\'', '\'', Mode);
+  define_syntax('\'', '"', Mode);
+  define_syntax ('\\', '\\', Mode);
   define_syntax("-a-zA-Z.:@!;", 'w', Mode);    % words
   define_syntax("-+0-9a-fA-F.xX", '0', Mode); % Numbers
   define_syntax(",;:.", ',', Mode);
@@ -163,6 +164,24 @@ private define sh_re_match_line (re)
   return pcre_matches(re, sh_line_as_str());
 }
 
+% Return the beginning column of a keyword
+private define return_kw_col (kw)
+{
+  variable p, pos = 0;
+
+  kw = strtrim(kw);
+
+  if (any(kw == SH_Indent_Kws))
+    p = pcre_compile("\\b$kw\\b"$);
+  else
+    p = pcre_compile("\\$kw"$);
+
+  if (pcre_exec(p, sh_line_as_str()))
+    return pcre_nth_match (p, 0)[0];
+
+  return 0;
+}
+
 % Use the parse_to_point() function to determine if keyword is
 % legitimate or a false positive within a string/comment. Returns
 % the value of parse_to_point().
@@ -170,10 +189,9 @@ private define sh_is_kw_in_string_or_comment(kw)
 {
   ifnot (NULL == sh_re_match_line("^[^#].*\\$\{?#")) return 0; % $#, ${# not cmts
   ifnot (NULL == sh_re_match_line("^\\becho\\b")) return -1; % arg to 'echo' may not be stringified
+  variable col = return_kw_col(kw);
   push_spot_bol();
-  do
-    if (re_looking_at("\\<$kw\\>"$)) break;
-  while (right(1));
+  goto_column(col+1);
   parse_to_point; % on stack
   pop_spot();
 }
@@ -207,7 +225,12 @@ private define sh_case_cond_is_end_par ()
     while (up(1))
     {
       ifnot (NULL == sh_re_match_line(".*\\(.*(*SKIP)(*F)|^.*?(\\))+")) break;
-      ifnot (NULL == sh_re_match_line(".*\\).*(*SKIP)(*F)|^.*?(\\()+")) par_n++;
+      ifnot (NULL == sh_re_match_line(".*\\).*(*SKIP)(*F)|^.*?(\\()+"))
+      {
+        () = ffind("(");
+        if (sh_is_kw_in_string_or_comment("(")) break;
+        par_n++;
+      }
     }
   }
 
@@ -228,8 +251,13 @@ private define sh_get_indent_kw ()
   ifnot (NULL == sh_re_match_line("\\b(if|case)\\b.*\\b(fi|esac)\\b\\s*#?"))
     return NULL;
 
-  % presumed case/esac conditions
-  ifnot (NULL == sh_re_match_line(".*\\(.*(*SKIP)(*F)|\\S\\)"))
+  % presumed case/esac conditions: match some text followed by a right
+  % parenthesis, but fail to match if there is a left parenthesis
+  % somewhere on the line or if the line begins with the 'case'
+  % keyword, since if 'case' and its condition is on the same line,
+  % then instead the 'case' keyword should be matched in
+  % $SH_Indent_Kws_Re
+  ifnot (NULL == sh_re_match_line("(^\\s*\\bcase\\b|\\().*(*SKIP)(*F)|\\S(\\))"))
   {
     kw = "case_cond";
     if (sh_is_kw_in_string_or_comment(")") < 0)
@@ -368,7 +396,7 @@ private define sh_indent_line ()
 
   % End token for "here documents" must have no indentation. There is
   % no naming standard for these, so just try for these two.
-  ifnot (NULL == sh_re_match_line("^(END|EOF)\\s*$"))
+  ifnot (NULL == sh_re_match_line("^\\s*(END|EOF)\\s*$"))
     return sh_indent_spaces(0);
 
   % if "then" is on a line by itself, align it to "if".
@@ -400,6 +428,8 @@ private define sh_indent_line ()
   % Align lines under these keywords
   if (any(prev_kw == ["esac","done","fi","}","eval",")"]))
     return sh_indent_spaces(prev_kw_col);
+
+  return sh_indent_spaces(0);
 }
 
 % Indent line or a marked region. Usually with <tab>
@@ -587,6 +617,15 @@ definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
 
+private define sh_menu (menu)
+{
+  menu_append_item (menu, "Show on Shellcheck Wiki", "sh_show_on_shellcheck_wiki");
+  menu_append_item (menu, "Check Buffer With Shellcheck", "sh_index_shellcheck_errors");
+  menu_append_item (menu, "Go to Next Shellcheck Error Line", "sh_goto_next_or_prev_shellcheck_entry\(1\)");
+  menu_append_item (menu, "Go to Previous Shellcheck Error Line", "sh_goto_next_or_prev_shellcheck_entry\(-1\)");
+  menu_append_item (menu, "Show Matching Keyword", "sh_show_matching_kw");
+}
+
 define sh_mode ()
 {
   define_blocal_var("Shellcheck_Indexed", 0);
@@ -596,6 +635,7 @@ define sh_mode ()
   use_keymap (Mode);
   set_buffer_hook("indent_hook", "sh_indent_region_or_line");
   set_buffer_hook("newline_indent_hook", "sh_newline_and_indent");
+  mode_set_mode_info (Mode, "init_mode_menu", &sh_menu);
   mode_set_mode_info ("SH", "fold_info", "#{{{\r#}}}\r\r");
   run_mode_hooks("sh_mode_hook");
 }
