@@ -127,20 +127,13 @@ scripts, but of course there are some ...
 
                                     Issues
 
+A string spanning more than one line won't be identified as such and words
+therein that happen to be identical to keywords ("if", "for", etc) will
+affect indentation even if they shouldn't. This could have been avoided
+defining a string syntax with the define_syntax() function and then using
+the parse_to_point() function to detect these false positives, but this
+solution seems to have worse effects.
 
-- Indentation of the first line following a 'heredoc' block of text may not
-  be correct, as the text block may contain false positive "keywords" that
-  won't be skipped unless the 'heredoc' block of text is presented as a
-  string. The 'heredoc' block itself may also be mangled.
-
-- Indentation in multi-line code blocks following an 'eval' command don't
-  work as these are detected as strings and therefore all keywords within them
-  are detected as 'NULL'
-
-- There are some occasional quoting issues that are hard to get around where
-  a whole subsequent block of code may be identified as a string even if it
-  isn't. E.g. how do you deal with a line like this:
-  "for _G_char in '\' '`' '"' '$'" ?
 
  (probably several others)
 
