@@ -16,7 +16,7 @@ custom_variable("SH_Expand_Kw_Syntax", 0);
 
 private variable
   Mode = "SH",
-  Version = 0.2,
+  Version = 0.4,
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Do_Done_Kws,
@@ -34,6 +34,7 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 
 % Regular expression for keywords with some added indentation triggers
 % such as parentheses and braces.
+% SH_Indent_Kws_Re = strcat("^\\s*\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
 SH_Indent_Kws_Re = strcat("^.*?\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
                           "|^\\s*\\beval\\b", % 'eval' at begin of line
                           "|^\\s*(\})\\s*#?", % right brace at begin of line with some blank space allowed
@@ -44,14 +45,9 @@ SH_Indent_Kws_Re = strcat("^.*?\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)
                           "|\\(\\s*$" % match an opening left parenthesis
                          );
 
-% Keywords that begin a do..done block
-SH_Do_Done_Kws = ["while","for","select","until","do"];
-SH_Do_Done_Kws_Re = strjoin(SH_Do_Done_Kws, "|");
-SH_Do_Done_Kws_Re = strcat ("^\\s*\\b(", SH_Do_Done_Kws_Re, ")\\b");
-
 % Associative array that will be used to position its paired keywords
 % to each other.
-SH_Kws_Hash["case_cond"] = "case";
+SH_Kws_Hash["case_pat"] = "case";
 SH_Kws_Hash["esac"] = "case";
 SH_Kws_Hash["done"] = "do";
 SH_Kws_Hash[")"] = "(";
@@ -59,6 +55,7 @@ SH_Kws_Hash["}"] = "{";
 SH_Kws_Hash["fi"] = "if";
 SH_Kws_Hash["else"] = "if";
 SH_Kws_Hash["elif"] = "if";
+SH_Kws_Hash["then"] = "if";
 
 % Associative array to insert and expand syntaxes for its keys
 SH_Indent_Hash["if"] = " @; then\n\nfi";
@@ -129,71 +126,94 @@ private define sh_add_kws_to_table(kws, tbl, n)
 
 create_syntax_table (Mode);
 
-private define sh_setup_syntax()
+% Pilfered from shmode.sl that ships with Jed
+#ifdef HAS_DFA_SYNTAX
+%%DFA_CACHE_BEGIN %%%
+private define setup_dfa_callback (Mode)
 {
-  variable bg;
-  (, bg) = get_color("normal"); % get the current background color
-  set_color("keyword", "red", bg);
-  set_color("operator", "yellow", bg);
-  define_syntax("#", "", '%', Mode); % comments
-  define_syntax("([{", ")]}", '(', Mode); % delimiters
-  define_syntax('"', '"', Mode);
-  define_syntax('`', '"', Mode);
-  define_syntax('\'', '"', Mode);
-  define_syntax ('\\', '\\', Mode);
-  define_syntax("-a-zA-Z.:@!;", 'w', Mode);    % words
-  define_syntax("-+0-9a-fA-F.xX", '0', Mode); % Numbers
-  define_syntax(",;:.", ',', Mode);
-  define_syntax("[]-+/&*=<>|!~^\\", '+', Mode);
-  define_syntax ("-a-zA-Z0-9_", 'w', Mode);
-  use_syntax_table(Mode);
-  sh_add_kws_to_table(SH_Kws, Mode, 0);
-  sh_add_kws_to_table(SH_Builtins, Mode, 1);
-  sh_add_kws_to_table(SH_Variables, Mode, 1);
+   % dfa_enable_highlight_cache ("shmode.dfa", Mode);
+   dfa_define_highlight_rule ("\\\\.", "normal", Mode);
+   dfa_define_highlight_rule ("#.*", "comment", Mode);
+   dfa_define_highlight_rule ("[0-9]+", "number", Mode);
+   dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*\"", "string", Mode);
+   dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*$", "string", Mode);
+   dfa_define_highlight_rule ("'[^']*'", "string", Mode);
+   dfa_define_highlight_rule ("'[^']*$", "string", Mode);
+   dfa_define_highlight_rule ("[\\|&;\\(\\)<>]", "Qdelimiter", Mode);
+   dfa_define_highlight_rule ("[\\[\\]\\*\\?]", "Qoperator", Mode);
+   dfa_define_highlight_rule ("[^ \t\"'\\\\\\|&;\\(\\)<>\\[\\]\\*\\?]+",
+   			  "Knormal", Mode);
+   dfa_define_highlight_rule (".", "normal", Mode);
+   dfa_build_highlight_table (Mode);
+}
+dfa_set_init_callback (&setup_dfa_callback, Mode);
+%%DFA_CACHE_END %%%
+#endif
+
+private define sh_line_as_str(incl_newline)
+{
+  push_spot_bol(); push_mark_eol();
+  if (incl_newline) go_right_1();
+  bufsubstr(); pop_spot();
 }
 
-private define sh_line_as_str()
+% Get all the column positions of a substring in a line.
+private define sh_get_substr_positions(substr)
 {
-  push_spot(); line_as_string(); pop_spot();
+  variable str, pos = 1, offset = 1, pos_arr = Int_Type[0];
+
+  if (string_match(substr, "[a-z]", 1))
+    substr = "\\<" + substr + "\\>"; % whole word
+
+  while (pos = string_match (sh_line_as_str(1), substr, offset), pos != 0)
+  {
+    offset = pos + strlen(substr);
+    pos_arr = [pos_arr, pos];
+  }
+
+  return pos_arr;
+}
+
+% Has word these characters on either side?
+private define sh_is_within_chars(word, beg_ch, end_ch)
+{
+  variable str, pos_beg_char, pos_end_char, pos_word;
+
+  pos_beg_char = sh_get_substr_positions(beg_ch);
+  pos_end_char = sh_get_substr_positions(end_ch);
+  pos_word = sh_get_substr_positions(word);
+
+  if ((length(pos_beg_char)) && (length(pos_end_char)) && (length(pos_word)))
+  {
+    pos_beg_char = pos_beg_char[where(pos_beg_char < pos_word[0])];
+    pos_end_char = pos_end_char[where(pos_end_char > pos_word[0]+strlen(word)-1)];
+    if (length(pos_beg_char) and length(pos_end_char))
+      return 1;
+  }
+  return 0;
 }
 
 % Matches pcre style regex pattern in current line. Returns matches as
 % an array with the same return value as pcre_matches()
-private define sh_re_match_line (re)
+private define sh_re_match_line(re)
 {
-  return pcre_matches(re, sh_line_as_str());
+  return pcre_matches(re, sh_line_as_str(0));
 }
 
-% Return the beginning column of a keyword
-private define return_kw_col (kw)
-{
-  variable p, pos = 0;
-
-  kw = strtrim(kw);
-
-  if (any(kw == SH_Indent_Kws))
-    p = pcre_compile("\\b$kw\\b"$);
-  else
-    p = pcre_compile("\\$kw"$);
-
-  if (pcre_exec(p, sh_line_as_str()))
-    return pcre_nth_match (p, 0)[0];
-
-  return 0;
-}
-
-% Use the parse_to_point() function to determine if keyword is
-% legitimate or a false positive within a string/comment. Returns
-% the value of parse_to_point().
+% parse_to_point() could have been used for some of this, but it
+% relies on a comment and string syntax having been defined with the
+% define_syntax() function which gives many problems falsely
+% identifying multi-line strings that shouldn't be treated as such.
 private define sh_is_kw_in_string_or_comment(kw)
 {
   ifnot (NULL == sh_re_match_line("^[^#].*\\$\{?#")) return 0; % $#, ${# not cmts
   ifnot (NULL == sh_re_match_line("^\\becho\\b")) return -1; % arg to 'echo' may not be stringified
-  variable col = return_kw_col(kw);
-  push_spot_bol();
-  goto_column(col+1);
-  parse_to_point; % on stack
-  pop_spot();
+  if ((sh_is_within_chars(kw, "\"", "\"")) ||
+      (sh_is_within_chars(kw, "\'", "\'")) ||
+      (sh_is_within_chars(kw, "\`", "\`")) ||
+      (sh_is_within_chars(kw, "#", "\n"))) return -1;
+
+  return 0;
 }
 
 private define sh_is_line_continued()
@@ -208,15 +228,15 @@ private define sh_is_line_continued()
   finally pop_spot();
 }
 
-private define sh_indent_spaces (n)
+private define sh_indent_spaces(n)
 {
   bol_trim(); insert_spaces(n);
 }
 
-% A line like, "abc)" is presumably a case/esac condition but could
+% A line like, "abc)" is presumably a case/esac pattern but could
 % also match a left parenthesis on a previous line. It will return a
 % positive integer in that case.
-private define sh_case_cond_is_end_par ()
+private define sh_case_pat_is_end_par()
 {
   variable par_n = 0;
   push_spot();
@@ -238,13 +258,24 @@ private define sh_case_cond_is_end_par ()
   return par_n;
 }
 
+% Extract the word identifying the beginning of a "here document"
+private define sh_get_heredoc_beg_token()
+{
+  variable beg_token = sh_re_match_line("^\\s*(cat|printf).*?<<(*SKIP)(.+?(?=\\s|\\Z))")[-1];
+
+  ifnot (NULL == beg_token)
+    beg_token = strtrim(beg_token, " \'\"");
+
+  return beg_token;
+}
+
 % Return the keyword on the current line
-private define sh_get_indent_kw ()
+private define sh_get_indent_kw()
 {
   variable kw = NULL;
 
   % one line do..done blocks
-  ifnot (NULL == sh_re_match_line(SH_Do_Done_Kws_Re + ".*done\\s*#?"))
+  ifnot (NULL == sh_re_match_line("\\bdo\\b.*done\\s*#?"))
     return NULL;
 
   % if..fi, case..esac one-liners
@@ -259,10 +290,10 @@ private define sh_get_indent_kw ()
   % $SH_Indent_Kws_Re
   ifnot (NULL == sh_re_match_line("(^\\s*\\bcase\\b|\\().*(*SKIP)(*F)|\\S(\\))"))
   {
-    kw = "case_cond";
+    kw = "case_pat";
     if (sh_is_kw_in_string_or_comment(")") < 0)
       return NULL;
-    if (sh_case_cond_is_end_par())
+    if (sh_case_pat_is_end_par())
       return NULL;
 
     return kw;
@@ -281,7 +312,7 @@ private define sh_get_indent_kw ()
 % matching keyword in e.g. statement blocks if..fi, esac..case, etc. Should
 % work in infinitely nested blocks. For continued lines ..\ return the
 % position of the first line part.
-private define sh_find_col_matching_kw (goto)
+private define sh_find_col_matching_kw(goto)
 {
   variable this_kw, kw, matching_kw, matching_kw_n = 0, kw_n = 0;
   variable fi_n = 0, if_n = 0;
@@ -296,6 +327,12 @@ private define sh_find_col_matching_kw (goto)
     {
       while (sh_is_line_continued()) go_up_1();
       break;
+    }
+
+    if ((kw == NULL) || (not assoc_key_exists(SH_Kws_Hash, kw)))
+    {
+      pop_spot();
+      return 0;
     }
 
     % Attempt to find parent-'if' to these keywords
@@ -316,9 +353,9 @@ private define sh_find_col_matching_kw (goto)
       break;
     }
 
-    % match case/esac condition, "..)" to parent 'case' keyword, also with
+    % match case/esac pattern, "..)" to parent 'case' keyword, also with
     % nested case/esac blocks.
-    if (kw == "case_cond")
+    if (kw == "case_pat")
     {
       while (up(1))
       {
@@ -350,43 +387,79 @@ private define sh_find_col_matching_kw (goto)
   ifnot (goto) pop_spot();
 }
 
-% Return keyword on current line and preceding keyword along with
-% their positions on the line
-private define sh_return_this_and_prev_kw ()
+private variable
+  SH_This_Line = 0,
+  SH_Prev_Line = 0,
+  SH_This_Kw = NULL,
+  SH_Prev_Kw = NULL,
+  SH_This_Kw_Col = 0,
+  SH_Prev_Kw_Col = 0,
+  SH_Heredoc_Beg_Token = NULL;
+
+% Set the keyword in the current line and the keyword in a previous line
+% in the global variables above along with the column positions of the lines.
+private define sh_return_this_and_prev_kw()
 {
-  variable this_kw = NULL, this_kw_col = 0, prev_kw = NULL, prev_kw_col = 0;
-
-  push_spot();
-  this_kw = sh_get_indent_kw();
-
-  ifnot (NULL == this_kw)
+  % Track back only if we have moved either backward or two or more lines
+  % forward without having activated the sh_indent_line() function
+  if ((what_line < SH_This_Line) || ((what_line - SH_This_Line) > 1))
   {
-    this_kw = strtrim(this_kw);
-    bol_skip_white();
-    this_kw_col = _get_point;
+    push_spot();
+    while(up(1))
+    {
+      bol_skip_white();
+      SH_Prev_Kw = sh_get_indent_kw();
+      if (NULL == SH_Prev_Kw) continue;
+      SH_Prev_Kw = strtrim(SH_Prev_Kw);
+      bol_skip_white();
+      SH_Prev_Kw_Col = _get_point;
+      SH_Prev_Line = what_line();
+      break;
+    }
+    pop_spot();
   }
 
-  while(up(1))
+  % We have moved exactly one line forward
+  if ((what_line - SH_This_Line) == 1)
   {
-    bol_skip_white();
-    prev_kw = sh_get_indent_kw();
-    if (NULL == prev_kw) continue;
-    prev_kw = strtrim(prev_kw);
-    prev_kw_col = _get_point;
-    break;
+    SH_Prev_Line = SH_This_Line;
+    ifnot (NULL == SH_This_Kw)
+    {
+      SH_Prev_Kw = SH_This_Kw;
+      SH_Prev_Kw_Col = SH_This_Kw_Col;
+    }
   }
 
-  pop_spot();
-  return (this_kw, this_kw_col, prev_kw, prev_kw_col);
+  SH_This_Kw = sh_get_indent_kw();
 }
 
 % The rules-based indentation of lines.
-private define sh_indent_line ()
+define sh_indent_line()
 {
-  variable col, this_kw, this_kw_col, prev_kw, prev_kw_col;
-  variable matching_kw;
+  variable col;
 
-  (this_kw, this_kw_col, prev_kw, prev_kw_col) = sh_return_this_and_prev_kw();
+  EXIT_BLOCK
+  {
+    SH_This_Line = what_line();
+    bol_skip_white();
+    SH_This_Kw_Col = _get_point();
+  }
+
+  variable heredoc_beg_token = sh_get_heredoc_beg_token();
+
+  ifnot (NULL == heredoc_beg_token)
+    SH_Heredoc_Beg_Token = heredoc_beg_token;
+
+  ifnot (NULL == SH_Heredoc_Beg_Token)
+  {
+    % at the end of heredoc 
+    ifnot (NULL == sh_re_match_line(strcat("^\\s*", SH_Heredoc_Beg_Token)))
+    {
+      SH_Heredoc_Beg_Token = NULL;
+      return sh_indent_spaces(0);
+    }
+    return sh_indent_spaces(SH_Prev_Kw_Col + SH_Indent);
+  }
 
   if (sh_is_line_continued()) % continued lines ...\
   {
@@ -394,40 +467,34 @@ private define sh_indent_line ()
     return sh_indent_spaces(col + SH_Indent);
   }
 
-  % End token for "here documents" must have no indentation. There is
-  % no naming standard for these, so just try for these two.
-  ifnot (NULL == sh_re_match_line("^\\s*(END|EOF)\\s*$"))
-    return sh_indent_spaces(0);
+  % Here, global variables SH_This_Kw, SH_Prev_Kw, SH_This_Kw_Col and SH_Prev_Kw_Col are set
+  sh_return_this_and_prev_kw();
 
-  % if "then" is on a line by itself, align it to "if".
-  if (this_kw == "then")
-    return sh_indent_spaces(prev_kw_col);
-
-  % indent a case condition relative to its case keyword by one level
-  if (this_kw == "case_cond")
+  % indent a case pattern relative to its case keyword by one level
+  if (SH_This_Kw == "case_pat")
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col + SH_Indent);
   }
 
   % Align these keywords to their matching keywords, fi..if, esac..case, etc
-  if (any(this_kw == ["fi","else","elif","done","esac","}",")"]))
+  if (any(SH_This_Kw == ["fi","else","elif","done","esac","}",")"]))
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col);
   }
 
   % if "do" keyword is on a line by itself, align to its loop keyword
-  if ((this_kw == "do") && (any(prev_kw == ["while","for","repeat","until","select"])))
-    return sh_indent_spaces(prev_kw_col);
+  if ((SH_This_Kw == "do") && (any(SH_Prev_Kw == ["while","for","repeat","until","select"])))
+    return sh_indent_spaces(SH_Prev_Kw_Col);
 
   % Indent lines following these keywords.
-  if (any(prev_kw == ["while","for","if","then","do","case","else","elif","{","(", "case_cond"]))
-    return sh_indent_spaces(prev_kw_col + SH_Indent);
+  if (any(SH_Prev_Kw == ["while","for","if","then","do","case","else","elif","{","(", "case_pat"]))
+    return sh_indent_spaces(SH_Prev_Kw_Col + SH_Indent);
 
   % Align lines under these keywords
-  if (any(prev_kw == ["esac","done","fi","}","eval",")"]))
-    return sh_indent_spaces(prev_kw_col);
+  if (any(SH_Prev_Kw == ["esac","done","fi","}","eval",")"]))
+    return sh_indent_spaces(SH_Prev_Kw_Col);
 
   return sh_indent_spaces(0);
 }
@@ -447,8 +514,7 @@ define sh_indent_region_or_line()
 
   do
   {
-    flush (sprintf ("indenting buffer ... (%d%%)", (i*100)/reg_endline));
-    if (eolp() and bolp()) continue;
+    flush (sprintf ("indenting region ... (%d%%)", (i*100)/reg_endline));
     sh_indent_line();
     i++;
   }
@@ -456,7 +522,7 @@ define sh_indent_region_or_line()
   flush("indent region done");
 }
 
-private define _sh_newline_and_indent ()
+private define _sh_newline_and_indent()
 {
   bskip_white();
   push_spot(); sh_indent_line(); pop_spot();
@@ -465,7 +531,7 @@ private define _sh_newline_and_indent ()
 }
 
 % Insert and expand a statement code block
-private define sh_insert_and_expand_construct ()
+private define sh_insert_and_expand_construct()
 {
   variable kw = sh_get_indent_kw();
   if ((kw == NULL) ||
@@ -485,7 +551,7 @@ private define sh_insert_and_expand_construct ()
 % Briefly highlight the matching keyword that begins a code block or
 % sub-block if standing on the keyword that ends it. Sometimes helpful
 % in long convoluted syntaxes.
-define sh_show_matching_kw ()
+define sh_show_matching_kw()
 {
   variable kw = sh_get_indent_kw(), matching_kw;
   if (kw == NULL) return;
@@ -509,30 +575,30 @@ define sh_newline_and_indent ()
   _sh_newline_and_indent();
 }
 
-private variable Shellcheck_Lines = Int_Type[0];
-private variable Shellcheck_Linenos = Int_Type[0];
-private variable Shellcheck_Err_Cols = Int_Type[0];
+private variable SH_Shellcheck_Lines = Int_Type[0];
+private variable SH_Shellcheck_Linenos = Int_Type[0];
+private variable SH_Shellcheck_Err_Cols = Int_Type[0];
 
 % Reset the shellcheck error index and remove line coloring.
-private define sh_shellcheck_reset ()
+private define sh_shellcheck_reset()
 {
   variable lineno;
   push_spot();
-  foreach lineno (Shellcheck_Linenos)
+  foreach lineno (SH_Shellcheck_Linenos)
   {
     goto_line(lineno);
     set_line_color(0);
   }
   pop_spot();
-  Shellcheck_Lines = Int_Type[0];
-  Shellcheck_Linenos = Int_Type[0];
-  Shellcheck_Err_Cols = Int_Type[0];
-  set_blocal_var(0, "Shellcheck_Indexed");
+  SH_Shellcheck_Lines = Int_Type[0];
+  SH_Shellcheck_Linenos = Int_Type[0];
+  SH_Shellcheck_Err_Cols = Int_Type[0];
+  set_blocal_var(0, "SH_Shellcheck_Indexed");
   call("redraw");
 }
 
 % Color and index lines identified by shellcheck as having errors/warnings.
-define sh_index_shellcheck_errors ()
+define sh_index_shellcheck_errors()
 {
   variable line, col, lineno, lineno_col, buf, fp, file, dir, cmd;
   variable tmpfile = "/tmp/shellcheck_tmpfile";
@@ -544,53 +610,53 @@ define sh_index_shellcheck_errors ()
   cmd = "shellcheck --severity=error --severity=warning --format=gcc $tmpfile"$;
   flush("Indexing shellcheck errors/warnings ...");
   fp = popen (cmd, "r");
-  Shellcheck_Lines = fgetslines(fp);
-  ifnot (length(Shellcheck_Lines))
+  SH_Shellcheck_Lines = fgetslines(fp);
+  ifnot (length(SH_Shellcheck_Lines))
     return flush("shellcheck reported no errors or warnings");
   () = pclose (fp);
   push_spot();
-  foreach line (Shellcheck_Lines)
+  foreach line (SH_Shellcheck_Lines)
   {
     lineno_col = pcre_matches("(\\d+):(\\d+)", line);
     lineno = integer(lineno_col[1]);
     col = integer(lineno_col[2]);
     goto_line(lineno);
     set_line_color(SH_Shellcheck_Error_Color);
-    Shellcheck_Linenos = [Shellcheck_Linenos, lineno];
-    Shellcheck_Err_Cols = [Shellcheck_Err_Cols, col];
+    SH_Shellcheck_Linenos = [SH_Shellcheck_Linenos, lineno];
+    SH_Shellcheck_Err_Cols = [SH_Shellcheck_Err_Cols, col];
   }
   pop_spot();
   call("redraw");
   flush("done");
-  set_blocal_var(1, "Shellcheck_Indexed");
+  set_blocal_var(1, "SH_Shellcheck_Indexed");
 }
 
-private variable Shellcheck_Wiki_Entry = "";
+private variable SH_Shellcheck_Wiki_Entry = "";
 
 % Go to next or previous line with errors relative to the editing
 % point identified by shellcheck and show the error message from
 % shellcheck in the message area.
-define sh_goto_next_or_prev_shellcheck_entry (dir)
+define sh_goto_next_or_prev_shellcheck_entry(dir)
 {
   variable i, err_col, err_lineno, err_msg, this_line = what_line();
 
-  ifnot (1 == get_blocal_var("Shellcheck_Indexed"))
+  ifnot (1 == get_blocal_var("SH_Shellcheck_Indexed"))
     sh_index_shellcheck_errors();
 
   try
   {
     if (dir < 0) % find index position of previous error line
-      i = where(this_line > Shellcheck_Linenos)[-1];
+      i = where(this_line > SH_Shellcheck_Linenos)[-1];
     else
-      i = where(this_line < Shellcheck_Linenos)[0];
+      i = where(this_line < SH_Shellcheck_Linenos)[0];
 
-    err_lineno = Shellcheck_Linenos[i];
-    err_col = Shellcheck_Err_Cols[i];
+    err_lineno = SH_Shellcheck_Linenos[i];
+    err_col = SH_Shellcheck_Err_Cols[i];
     goto_line(err_lineno);
     goto_column(err_col);
-    err_msg = Shellcheck_Lines[i];
+    err_msg = SH_Shellcheck_Lines[i];
     err_msg = pcre_matches("^.*?:(.*)", err_msg)[1]; % omit file name
-    Shellcheck_Wiki_Entry = pcre_matches("SC\\d+", err_msg)[0];
+    SH_Shellcheck_Wiki_Entry = pcre_matches("SC\\d+", err_msg)[0];
     call("redraw");
     message(err_msg);
   }
@@ -598,38 +664,42 @@ define sh_goto_next_or_prev_shellcheck_entry (dir)
 }
 
 % Show shellcheck error/warning explanation on the shellcheck wiki.
-define sh_show_on_shellcheck_wiki ()
+define sh_show_on_shellcheck_wiki()
 {
-  ifnot (strlen(Shellcheck_Wiki_Entry))
+  ifnot (strlen(SH_Shellcheck_Wiki_Entry))
     return flush("you must jump to an error line first");
 
   if (NULL == search_path_for_file (getenv("PATH"), SH_Browser))
     throw RunTimeError, "$SH_Browser was not found"$;
 
   if (get_line_color == SH_Shellcheck_Error_Color)
-    () = run_program("$SH_Browser https://www.shellcheck.net/wiki/$Shellcheck_Wiki_Entry"$);
+    () = run_program("$SH_Browser https://www.shellcheck.net/wiki/$SH_Shellcheck_Wiki_Entry"$);
 }
 
-ifnot (keymap_p (Mode)) make_keymap (Mode);
+ifnot (keymap_p (Mode)) make_keymap(Mode);
 definekey_reserved ("sh_show_on_shellcheck_wiki", "W", Mode);
 definekey_reserved ("sh_index_shellcheck_errors", "C", Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
 
-private define sh_menu (menu)
+private define sh_menu(menu)
 {
-  menu_append_item (menu, "Show on Shellcheck Wiki", "sh_show_on_shellcheck_wiki");
   menu_append_item (menu, "Check Buffer With Shellcheck", "sh_index_shellcheck_errors");
   menu_append_item (menu, "Go to Next Shellcheck Error Line", "sh_goto_next_or_prev_shellcheck_entry\(1\)");
   menu_append_item (menu, "Go to Previous Shellcheck Error Line", "sh_goto_next_or_prev_shellcheck_entry\(-1\)");
+  menu_append_item (menu, "Show on Shellcheck Wiki", "sh_show_on_shellcheck_wiki");
   menu_append_item (menu, "Show Matching Keyword", "sh_show_matching_kw");
 }
 
-define sh_mode ()
+define sh_mode()
 {
-  define_blocal_var("Shellcheck_Indexed", 0);
-  sh_setup_syntax();
+  define_blocal_var("SH_Shellcheck_Indexed", 0);
+  use_syntax_table(Mode);
+  use_dfa_syntax(1);
+  sh_add_kws_to_table(SH_Kws, Mode, 0);
+  sh_add_kws_to_table(SH_Builtins, Mode, 1);
+  sh_add_kws_to_table(SH_Variables, Mode, 1);
   set_comment_info(Mode, "# ", "", 0x01);
   set_mode(Mode, 4);
   use_keymap (Mode);
