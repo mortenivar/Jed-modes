@@ -34,7 +34,6 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 
 % Regular expression for keywords with some added indentation triggers
 % such as parentheses and braces.
-% SH_Indent_Kws_Re = strcat("^\\s*\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
 SH_Indent_Kws_Re = strcat("^.*?\\b(", SH_Indent_Kws_Re, ")\\b(?:.*(\\b(do|if|fi)\\b))?", % match keywords only as whole words
                           "|^\\s*\\beval\\b", % 'eval' at begin of line
                           "|^\\s*(\})\\s*#?", % right brace at begin of line with some blank space allowed
@@ -150,68 +149,31 @@ dfa_set_init_callback (&setup_dfa_callback, Mode);
 %%DFA_CACHE_END %%%
 #endif
 
-private define sh_line_as_str(incl_newline)
+private define sh_line_as_str()
 {
-  push_spot_bol(); push_mark_eol();
-  if (incl_newline) go_right_1();
-  bufsubstr(); pop_spot();
-}
-
-% Get all the column positions of a substring in a line.
-private define sh_get_substr_positions(substr)
-{
-  variable str, pos = 1, offset = 1, pos_arr = Int_Type[0];
-
-  if (string_match(substr, "[a-z]", 1))
-    substr = "\\<" + substr + "\\>"; % whole word
-
-  while (pos = string_match (sh_line_as_str(1), substr, offset), pos != 0)
-  {
-    offset = pos + strlen(substr);
-    pos_arr = [pos_arr, pos];
-  }
-
-  return pos_arr;
-}
-
-% Has word these characters on either side?
-private define sh_is_within_chars(word, beg_ch, end_ch)
-{
-  variable str, pos_beg_char, pos_end_char, pos_word;
-
-  pos_beg_char = sh_get_substr_positions(beg_ch);
-  pos_end_char = sh_get_substr_positions(end_ch);
-  pos_word = sh_get_substr_positions(word);
-
-  if ((length(pos_beg_char)) && (length(pos_end_char)) && (length(pos_word)))
-  {
-    pos_beg_char = pos_beg_char[where(pos_beg_char < pos_word[0])];
-    pos_end_char = pos_end_char[where(pos_end_char > pos_word[0]+strlen(word)-1)];
-    if (length(pos_beg_char) and length(pos_end_char))
-      return 1;
-  }
-  return 0;
+  push_spot_bol(); push_mark_eol(); bufsubstr(); pop_spot();
 }
 
 % Matches pcre style regex pattern in current line. Returns matches as
 % an array with the same return value as pcre_matches()
 private define sh_re_match_line(re)
 {
-  return pcre_matches(re, sh_line_as_str(0));
+  return pcre_matches(re, sh_line_as_str());
 }
 
-% parse_to_point() could have been used for some of this, but it
-% relies on a comment and string syntax having been defined with the
-% define_syntax() function which gives many problems falsely
-% identifying multi-line strings that shouldn't be treated as such.
 private define sh_is_kw_in_string_or_comment(kw)
 {
+  if (string_match(kw, "[a-z]", 1))
+    kw = strcat("\\b", kw, "\\b");
+  else
+    kw = strcat("\\", kw); % parantheses, braces
+
   ifnot (NULL == sh_re_match_line("^[^#].*\\$\{?#")) return 0; % $#, ${# not cmts
   ifnot (NULL == sh_re_match_line("^\\becho\\b")) return -1; % arg to 'echo' may not be stringified
-  if ((sh_is_within_chars(kw, "\"", "\"")) ||
-      (sh_is_within_chars(kw, "\'", "\'")) ||
-      (sh_is_within_chars(kw, "\`", "\`")) ||
-      (sh_is_within_chars(kw, "#", "\n"))) return -1;
+  ifnot (NULL == sh_re_match_line(strcat("\".*?", kw, ".*?\""))) return -1;
+  ifnot (NULL == sh_re_match_line(strcat("\'.*?", kw, ".*?\'"))) return -1;
+  ifnot (NULL == sh_re_match_line(strcat("\`.*?", kw, ".*?\`"))) return -1;
+  ifnot (NULL == sh_re_match_line(strcat("#.*?", kw))) return -1;
 
   return 0;
 }
@@ -302,10 +264,54 @@ private define sh_get_indent_kw()
   kw = sh_re_match_line(SH_Indent_Kws_Re)[-1];
   if (kw == NULL) return NULL;
 
+  kw = strtrim(kw);
+
   if (sh_is_kw_in_string_or_comment(kw) < 0)
     return NULL;
 
   return strtrim(kw);
+}
+
+private variable
+  SH_This_Line = 0,
+  SH_This_Kw = NULL,
+  SH_Prev_Kw = NULL,
+  SH_This_Kw_Col = 0,
+  SH_Prev_Kw_Col = 0,
+  SH_Heredoc_Beg_Token = NULL;
+
+% Set the keyword in the current line and the keyword in a previous line
+% in the global variables above along with the column positions of the lines.
+private define sh_return_this_and_prev_kw ()
+{
+  % Track back only if we have moved either backward or two or more lines
+  % forward without having activated the sh_indent_line() function
+  if ((what_line < SH_This_Line) || ((what_line - SH_This_Line) > 1))
+  {
+    push_spot();
+    while(up(1))
+    {
+      if (NULL == sh_get_indent_kw()) continue;
+      bol_skip_white();
+      SH_Prev_Kw_Col = _get_point;
+      break;
+    }
+    SH_Prev_Kw = sh_get_indent_kw();
+    pop_spot();
+  }
+
+  % We have moved exactly one line forward
+  if ((what_line - SH_This_Line) == 1)
+  {
+    ifnot (NULL == SH_This_Kw)
+    {
+      SH_Prev_Kw = SH_This_Kw;
+      SH_Prev_Kw_Col = SH_This_Kw_Col;
+    }
+  }
+
+  SH_This_Line = what_line();
+  SH_This_Kw = sh_get_indent_kw();
 }
 
 % Attempt to find indentation column of parent keyword to a current
@@ -387,52 +393,6 @@ private define sh_find_col_matching_kw(goto)
   ifnot (goto) pop_spot();
 }
 
-private variable
-  SH_This_Line = 0,
-  SH_Prev_Line = 0,
-  SH_This_Kw = NULL,
-  SH_Prev_Kw = NULL,
-  SH_This_Kw_Col = 0,
-  SH_Prev_Kw_Col = 0,
-  SH_Heredoc_Beg_Token = NULL;
-
-% Set the keyword in the current line and the keyword in a previous line
-% in the global variables above along with the column positions of the lines.
-private define sh_return_this_and_prev_kw()
-{
-  % Track back only if we have moved either backward or two or more lines
-  % forward without having activated the sh_indent_line() function
-  if ((what_line < SH_This_Line) || ((what_line - SH_This_Line) > 1))
-  {
-    push_spot();
-    while(up(1))
-    {
-      bol_skip_white();
-      SH_Prev_Kw = sh_get_indent_kw();
-      if (NULL == SH_Prev_Kw) continue;
-      SH_Prev_Kw = strtrim(SH_Prev_Kw);
-      bol_skip_white();
-      SH_Prev_Kw_Col = _get_point;
-      SH_Prev_Line = what_line();
-      break;
-    }
-    pop_spot();
-  }
-
-  % We have moved exactly one line forward
-  if ((what_line - SH_This_Line) == 1)
-  {
-    SH_Prev_Line = SH_This_Line;
-    ifnot (NULL == SH_This_Kw)
-    {
-      SH_Prev_Kw = SH_This_Kw;
-      SH_Prev_Kw_Col = SH_This_Kw_Col;
-    }
-  }
-
-  SH_This_Kw = sh_get_indent_kw();
-}
-
 % The rules-based indentation of lines.
 define sh_indent_line()
 {
@@ -461,14 +421,14 @@ define sh_indent_line()
     return sh_indent_spaces(SH_Prev_Kw_Col + SH_Indent);
   }
 
+  % Here, global variables SH_This_Kw, SH_Prev_Kw, SH_This_Kw_Col and SH_Prev_Kw_Col are set
+  sh_return_this_and_prev_kw();
+
   if (sh_is_line_continued()) % continued lines ...\
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col + SH_Indent);
   }
-
-  % Here, global variables SH_This_Kw, SH_Prev_Kw, SH_This_Kw_Col and SH_Prev_Kw_Col are set
-  sh_return_this_and_prev_kw();
 
   % indent a case pattern relative to its case keyword by one level
   if (SH_This_Kw == "case_pat")
@@ -478,7 +438,7 @@ define sh_indent_line()
   }
 
   % Align these keywords to their matching keywords, fi..if, esac..case, etc
-  if (any(SH_This_Kw == ["fi","else","elif","done","esac","}",")"]))
+  if (any(SH_This_Kw == ["then","fi","else","elif","done","esac","}",")"]))
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col);
@@ -494,6 +454,9 @@ define sh_indent_line()
 
   % Align lines under these keywords
   if (any(SH_Prev_Kw == ["esac","done","fi","}","eval",")"]))
+    return sh_indent_spaces(SH_Prev_Kw_Col);
+
+  if (SH_This_Kw == NULL)
     return sh_indent_spaces(SH_Prev_Kw_Col);
 
   return sh_indent_spaces(0);
