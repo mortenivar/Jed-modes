@@ -16,7 +16,7 @@ custom_variable("SH_Expand_Kw_Syntax", 1);
 
 private variable
   Mode = "SH",
-  Version = "0.5.1",
+  Version = "0.5.2",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Do_Done_Kws,
@@ -161,23 +161,6 @@ private define sh_re_match_line(re)
   return 1;
 }
 
-private define sh_is_kw_in_string_or_comment(kw)
-{
-  if (string_match(kw, "[a-z]", 1))
-    kw = strcat("\\b", kw, "\\b");
-  else
-    kw = str_quote_string (kw, "{}()", '\\'); % parantheses, braces
-
-  if (sh_re_match_line("^[^#].*\\$\{?#")) return 0; % $#, ${# not cmts
-  if (sh_re_match_line("^\\s*\\becho\\b")) return -1; % arg to 'echo' may not be stringified
-  if (sh_re_match_line(strcat("\".*?", kw, ".*?\""))) return -1;
-  if (sh_re_match_line(strcat("\'.*?", kw, ".*?\'"))) return -1;
-  if (sh_re_match_line(strcat("\`.*?", kw, ".*?\`"))) return -1;
-  if (sh_re_match_line(strcat("#.*?", kw))) return -1;
-
-  return 0;
-}
-
 private define sh_is_line_continued()
 {
   try
@@ -213,7 +196,11 @@ private define sh_case_pat_is_end_par()
 private define sh_get_heredoc_beg_token()
 {
   variable re = "^\\s*(cat|printf).*?<<(*SKIP)(.+?(?=\\s|\\Z))";
-  return pcre_matches(re, sh_line_as_str())[-1];
+  variable heredoc_beg_token = pcre_matches(re, sh_line_as_str())[-1];
+  ifnot (heredoc_beg_token == NULL)
+    heredoc_beg_token = strtrim(heredoc_beg_token, "-\"\'");
+
+  return heredoc_beg_token;
 }
 
 % Return the keyword on the current line
@@ -224,6 +211,11 @@ private define sh_get_indent_kw()
   if (sh_re_match_line("^\\s*$")) return NULL;
   if (sh_re_match_line("^\\s*#")) return NULL;
 
+  % stop this function if no keyword on the line, except if
+  % a case pattern. The case pattern is defined in the next lines.
+  ifnot ((sh_re_match_line("^.*?(\\().*(*SKIP)(*F)|(\\S\\))"))) % matches a case pattern
+    ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return NULL;
+
   % presumed case/esac conditions: match some text followed by a right
   % parenthesis, but fail to match if there is a left parenthesis
   % somewhere on the line or if the line begins with the one of the
@@ -232,7 +224,6 @@ private define sh_get_indent_kw()
   if (sh_re_match_line("(^\\s*$SH_Indent_Kws_Re|\\().*(*SKIP)(*F)|\\S(\\))"$))
   {
     kw = "case_pat";
-    if (sh_is_kw_in_string_or_comment(")") < 0) return NULL;
     if (sh_case_pat_is_end_par()) return NULL;
     return kw;
   }
@@ -250,9 +241,6 @@ private define sh_get_indent_kw()
   if (kw == NULL) return NULL;
 
   kw = strtrim(kw);
-
-  if (sh_is_kw_in_string_or_comment(kw) < 0) return NULL;
-
   return kw;
 }
 
@@ -260,14 +248,16 @@ private define sh_get_indent_kw()
 private define sh_get_prev_kw_and_col()
 {
   push_spot();
-  do
-    ifnot (up(1)) break;
-  while (NULL == sh_get_indent_kw());
-
-  sh_get_indent_kw(); % previous kw on stack
-  bol_skip_white();
-  _get_point(); % previous kw col on stack
-  pop_spot();
+  try
+  {
+    do
+      ifnot (up(1)) return (NULL, 0);
+    while (NULL == sh_get_indent_kw());
+    sh_get_indent_kw(); % previous kw on stack
+    bol_skip_white();
+    _get_point(); % previous kw col on stack
+  }
+  finally pop_spot();
 }
 
 % Attempt to find indentation column of parent keyword to a current
@@ -354,7 +344,7 @@ private variable SH_Heredoc_Beg_Token = NULL;
 % The rules-based indentation of lines.
 define sh_indent_line()
 {
-  variable sh_this_kw = "", sh_prev_kw = "", sh_prev_kw_col = 0, col = 0;
+  variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
   variable heredoc_beg_token = sh_get_heredoc_beg_token();
 
   ifnot (NULL == heredoc_beg_token)
@@ -616,6 +606,7 @@ definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
 definekey ("sh_electric_right_brace", "}", Mode);
+definekey ("f", "½", Mode);
 
 private define sh_menu(menu)
 {
