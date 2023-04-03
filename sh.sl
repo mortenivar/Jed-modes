@@ -16,7 +16,7 @@ custom_variable("SH_Expand_Kw_Syntax", 1);
 
 private variable
   Mode = "SH",
-  Version = "0.5.2",
+  Version = "0.5.3",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Do_Done_Kws,
@@ -65,7 +65,7 @@ SH_Indent_Hash["until"] = " @; do\n\ndone";
 SH_Indent_Hash["case"] = " $@ in\n*)\n;;\n*)\n;;\nesac";
 
 % For highlighting
-private variable SH_Kws = [SH_Indent_Kws, ["!","in",";;","time","do","case","END","EOF"]];
+private variable SH_Kws = [SH_Indent_Kws, ["!","in",";;","time","do","END","EOF"]];
 
 % For highlighting. These should cover korn, posix, bourne, bash and zsh?
 private variable SH_Builtins =
@@ -153,8 +153,7 @@ private define sh_line_as_str()
   push_spot_bol(); push_mark_eol(); bufsubstr(); pop_spot();
 }
 
-% Matches pcre style regex pattern in current line. Returns matches as
-% an array with the same return value as pcre_matches()
+% Matches a pcre style regex pattern in current line.
 private define sh_re_match_line(re)
 {
   if (NULL == pcre_matches(re, sh_line_as_str())) return NULL;
@@ -216,7 +215,7 @@ private define sh_get_indent_kw()
   ifnot ((sh_re_match_line("^.*?(\\().*(*SKIP)(*F)|(\\S\\))"))) % matches a case pattern
     ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return NULL;
 
-  % presumed case/esac conditions: match some text followed by a right
+  % presumed case/esac patterns: match some text followed by a right
   % parenthesis, but fail to match if there is a left parenthesis
   % somewhere on the line or if the line begins with the one of the
   % keywords in $SH_Indent_Kws_Re, then this keyword should be matched
@@ -359,7 +358,7 @@ define sh_indent_line()
 
   sh_this_kw = sh_get_indent_kw();
   (sh_prev_kw, sh_prev_kw_col) = sh_get_prev_kw_and_col();
-
+ 
   if (sh_is_line_continued()) % continued lines ...\
   {
     col = sh_find_col_matching_kw(0);
@@ -376,9 +375,11 @@ define sh_indent_line()
     return sh_indent_spaces(0);
   }
 
+  % Align a 'then' keyword on a line by itself to 'if' or 'elif'
   if ((sh_this_kw == "then") && (any(sh_prev_kw == ["if","elif"])))
     return sh_indent_spaces(sh_prev_kw_col);
 
+  % Align a 'do' keyword on a line by itself to its loop keywords
   if ((sh_this_kw == "do") && (any(sh_prev_kw == ["for","while","until"])))
     return sh_indent_spaces(sh_prev_kw_col);
 
@@ -513,8 +514,8 @@ private define sh_shellcheck_reset()
 define sh_index_shellcheck_errors()
 {
   variable shellcheck = search_path_for_file (getenv("PATH"), "shellcheck");
-  variable line, col, lineno, lineno_col, buf, fp, file, dir, cmd;
-  variable tmpfile = "/tmp/shellcheck_tmpfile";
+  variable line, col, lineno, lineno_col, fp, cmd;
+  variable tmpfile = make_tmp_file("/tmp/shellcheck_tmpfile");
 
   if (shellcheck == NULL)
     throw RunTimeError, "shellcheck program not found";
@@ -523,17 +524,21 @@ define sh_index_shellcheck_errors()
   push_spot_bob(); push_mark_eob();
   () = write_string_to_file(bufsubstr(), tmpfile);
   pop_spot();
-  cmd = "$shellcheck --severity=error --severity=warning --format=gcc $tmpfile"$;
+  cmd = "$shellcheck --severity=style --format=gcc $tmpfile"$;
   flush("Indexing shellcheck errors/warnings ...");
   fp = popen (cmd, "r");
   SH_Shellcheck_Lines = fgetslines(fp);
+  () = pclose (fp);
+  () = delete_file(tmpfile);
+
   ifnot (length(SH_Shellcheck_Lines))
     return flush("shellcheck reported no errors or warnings");
-  () = pclose (fp);
+
   push_spot();
+
   foreach line (SH_Shellcheck_Lines)
   {
-    lineno_col = pcre_matches("(\\d+):(\\d+)", line);
+    lineno_col = pcre_matches(":(\\d+):(\\d+)", line);
     lineno = integer(lineno_col[1]);
     col = integer(lineno_col[2]);
     goto_line(lineno);
@@ -606,7 +611,6 @@ definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
 definekey ("sh_electric_right_brace", "}", Mode);
-definekey ("f", "½", Mode);
 
 private define sh_menu(menu)
 {
