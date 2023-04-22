@@ -14,13 +14,15 @@ custom_variable("SH_Browser", "lynx");
 % User defined variable of automatic code block insertion
 custom_variable("SH_Expand_Kw_Syntax", 1);
 
+% The minimum severity level for shellcheck reporting. Possible values
+% are "style", "info", "warning" and "error".
+custom_variable("SH_Shellcheck_Severity_Level", "warning");
+
 private variable
   Mode = "SH",
-  Version = "0.5.3",
+  Version = "0.5.4",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
-  SH_Do_Done_Kws,
-  SH_Do_Done_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
   SH_Kws_Hash = Assoc_Type[String_Type, ""],
   SH_Indent_Hash = Assoc_Type[String_Type, ""];
@@ -58,7 +60,7 @@ SH_Kws_Hash["elif"] = "if";
 
 % Associative array to insert and expand syntaxes for its keys
 SH_Indent_Hash["if"] = " @; then\n\nfi";
-SH_Indent_Hash["elif"] = " @; then\n\nelse\n\nfi\n";
+SH_Indent_Hash["elif"] = " @; then\n\nelse\n\n";
 SH_Indent_Hash["for"] = " @ in ; do\n\ndone";
 SH_Indent_Hash["while"] = " @; do\n\ndone";
 SH_Indent_Hash["until"] = " @; do\n\ndone";
@@ -495,13 +497,11 @@ private variable SH_Shellcheck_Err_Cols = Int_Type[0];
 % Reset the shellcheck error index and remove line coloring.
 private define sh_shellcheck_reset()
 {
-  variable lineno;
-  push_spot();
-  foreach lineno (SH_Shellcheck_Linenos)
-  {
-    goto_line(lineno);
-    set_line_color(0);
-  }
+  push_spot_bob();
+  do
+    if (get_line_color == SH_Shellcheck_Error_Color)
+      set_line_color(0);
+  while (down(1));
   pop_spot();
   SH_Shellcheck_Lines = Int_Type[0];
   SH_Shellcheck_Linenos = Int_Type[0];
@@ -524,7 +524,7 @@ define sh_index_shellcheck_errors()
   push_spot_bob(); push_mark_eob();
   () = write_string_to_file(bufsubstr(), tmpfile);
   pop_spot();
-  cmd = "$shellcheck --severity=style --format=gcc $tmpfile"$;
+  cmd = "$shellcheck --severity=$SH_Shellcheck_Severity_Level --format=gcc $tmpfile"$;
   flush("Indexing shellcheck errors/warnings ...");
   fp = popen (cmd, "r");
   SH_Shellcheck_Lines = fgetslines(fp);
@@ -579,9 +579,9 @@ define sh_goto_next_or_prev_shellcheck_entry(dir)
     err_msg = pcre_matches("^.*?:(.*)", err_msg)[1]; % omit file name
     SH_Shellcheck_Wiki_Entry = pcre_matches("SC\\d+", err_msg)[0];
     call("redraw");
-    message(err_msg);
+    flush(err_msg);
   }
-  catch IndexError: message("no shellcheck errors/warnings beyond this line");
+  catch IndexError: flush("no shellcheck errors/warnings beyond this line");
 }
 
 % Show shellcheck error/warning explanation on the shellcheck wiki.
