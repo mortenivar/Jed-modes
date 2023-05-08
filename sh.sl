@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.5.4",
+  Version = "0.5.5",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -28,23 +28,22 @@ private variable
   SH_Indent_Hash = Assoc_Type[String_Type, ""];
 
 % Keywords that trigger some indentation rule
-SH_Indent_Kws = ["if","fi","else","elif","esac","done","then","case","for","while","until"];
+SH_Indent_Kws = ["if","fi","else","elif","case","esac","do","done","then","for",
+                 "while","until","select","eval"];
 
 % OR'ed expression of $SH_Indent_Kws
 SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 
 % Regular expression for keywords with some added indentation triggers
-% such as parentheses and braces.
+% such as parentheses and braces. If 'do' is on the same line as loop
+% keyword, 'do' should always be matched.
+%SH_Indent_Kws_Re = strcat("^.*?\\b(${SH_Indent_Kws_Re})\\b(?:.*(\\bdo\\b|{)\\s*$)?"$,
 SH_Indent_Kws_Re = strcat("^\\s*\\b(${SH_Indent_Kws_Re})\\b(?:.*(\\bdo\\b|{)\\s*$)?"$,
-                          "|\\bdo\\b$", % 'do' at end of line
-                          "|^\\s*\\beval\\b", % 'eval' at begin of line
-                          "|^\\s*(\})\\s*#?", % right brace at begin of line with some blank space allowed
-                          "|({)\\s*$", % opening left brace in functions
-                          "|^[^$]*({)\\s*#", % same but allow for trailing comment
-                          "|^\\s*\\)", % right parenthesis at begin of line
-                          "|\\(\\s*$", % match an opening left parenthesis
-                          "|\\b(case)\\b.*?\\$", % case
-                          "|(\\(\\))\\s*$" % function definitions
+                          % right parenthesis at begin of line
+                          "|^\\s*(\\))\\s*",
+                          % left /parenthesis or function definition,
+                          % allow for trailing comment
+                          "|(\\(|\\(\\))\\s*(?:#.*?)?$"
                          );
 
 % Associative array that will be used to position its paired keywords
@@ -60,14 +59,15 @@ SH_Kws_Hash["elif"] = "if";
 
 % Associative array to insert and expand syntaxes for its keys
 SH_Indent_Hash["if"] = " @; then\n\nfi";
-SH_Indent_Hash["elif"] = " @; then\n\nelse\n\n";
+SH_Indent_Hash["elif"] = " @; then\n\n";
 SH_Indent_Hash["for"] = " @ in ; do\n\ndone";
+SH_Indent_Hash["select"] = " @ in ; do\n\ndone";
 SH_Indent_Hash["while"] = " @; do\n\ndone";
 SH_Indent_Hash["until"] = " @; do\n\ndone";
 SH_Indent_Hash["case"] = " $@ in\n*)\n;;\n*)\n;;\nesac";
 
 % For highlighting
-private variable SH_Kws = [SH_Indent_Kws, ["!","in",";;","time","do","END","EOF"]];
+private variable SH_Kws = [SH_Indent_Kws, ["!","in",";;","time","case","END","EOF"]];
 
 % For highlighting. These should cover korn, posix, bourne, bash and zsh?
 private variable SH_Builtins =
@@ -125,6 +125,8 @@ private define sh_add_kws_to_table(kws, tbl, n)
 }
 
 create_syntax_table (Mode);
+% only identify strings with '"' and not '\''
+define_syntax('"', '"', Mode);
 
 % Pilfered from shmode.sl that ships with Jed
 #ifdef HAS_DFA_SYNTAX
@@ -166,8 +168,9 @@ private define sh_is_line_continued()
 {
   try
   {
-    push_spot (); go_up_1();
-    if (sh_re_match_line("\\\\$")) return 1;
+    push_spot ();
+    if (up(1))
+      if (sh_re_match_line("\\\\$")) return 1;
 
     return 0;
   }
@@ -179,29 +182,47 @@ private define sh_indent_spaces(n)
   bol_trim(); insert_spaces(n);
 }
 
-% A line like, "abc)" is presumably a case/esac pattern but could
-% also match a left parenthesis on a previous line.
-private define sh_case_pat_is_end_par()
-{
-  push_spot();
-  try
-  {
-    go_up_1();
-    ifnot (1 == count_char_occurrences(sh_line_as_str(), '(')) return 0;
-    else return 1;
-  }
-  finally pop_spot();
-}
-
 % Extract the word identifying the beginning of a "here document"
 private define sh_get_heredoc_beg_token()
 {
-  variable re = "^\\s*(cat|printf).*?<<(*SKIP)(.+?(?=\\s|\\Z))";
+  variable re = "^\\s*(cat|printf)?.*?<<-?(*SKIP)(.+?(?=\\s|\\Z))";
   variable heredoc_beg_token = pcre_matches(re, sh_line_as_str())[-1];
   ifnot (heredoc_beg_token == NULL)
-    heredoc_beg_token = strtrim(heredoc_beg_token, "-\"\'");
+    heredoc_beg_token = strtrim(heredoc_beg_token, "-\"\' ");
 
   return heredoc_beg_token;
+}
+
+% Check if any number of occurrences of one character in a _line_ is not
+% balanced by a similar number of another character, e.g. '{' and '}'.
+private define sh_char_is_unbalanced(ch1, ch2)
+{
+  variable ch1_n = count_char_occurrences(sh_line_as_str(), ch1);
+  variable ch2_n = count_char_occurrences(sh_line_as_str(), ch2);
+
+  if (ch1_n > 0)
+    if ((ch1_n - ch2_n) mod 2 || ch2_n == 0) return 1; % ch1
+  if (ch2_n > 0)
+    if ((ch2_n - ch1_n) mod 2 || ch1_n == 0) return 2; % ch2
+
+  return 0;
+}
+
+% Is "keyword" embedded within a double quoted string
+private define sh_kw_is_in_string(kw)
+{
+  try
+  {
+    push_spot_bol();
+
+    if (string_match(kw, "[a-z]", 1))
+      kw = strcat("\\<", kw, "\\>"); % whole word
+
+    () = re_fsearch(kw);
+    if (-1 == parse_to_point()) return 1;
+    return 0;
+  }
+  finally pop_spot();
 }
 
 % Return the keyword on the current line
@@ -212,29 +233,46 @@ private define sh_get_indent_kw()
   if (sh_re_match_line("^\\s*$")) return NULL;
   if (sh_re_match_line("^\\s*#")) return NULL;
 
-  % stop this function if no keyword on the line, except if
-  % a case pattern. The case pattern is defined in the next lines.
-  ifnot ((sh_re_match_line("^.*?(\\().*(*SKIP)(*F)|(\\S\\))"))) % matches a case pattern
-    ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return NULL;
-
   % presumed case/esac patterns: match some text followed by a right
   % parenthesis, but fail to match if there is a left parenthesis
   % somewhere on the line or if the line begins with the one of the
-  % keywords in $SH_Indent_Kws_Re, then this keyword should be matched
-  % instead.
+  % keywords in $SH_Indent_Kws_Re
   if (sh_re_match_line("(^\\s*$SH_Indent_Kws_Re|\\().*(*SKIP)(*F)|\\S(\\))"$))
   {
     kw = "case_pat";
-    if (sh_case_pat_is_end_par()) return NULL;
+    push_spot();
+    try
+    {
+      if (up(1))
+        if (1 == sh_char_is_unbalanced('(',')')) return NULL;
+    }
+    finally pop_spot();
     return kw;
   }
+
+  if (1 == sh_char_is_unbalanced('{', '}'))
+  {
+    kw = "{";
+    if (sh_kw_is_in_string(kw)) kw = NULL;
+    return kw;
+  }
+
+  if (2 == sh_char_is_unbalanced('{', '}'))
+  {
+    kw = "}";
+    if (sh_kw_is_in_string(kw)) kw = NULL;
+    return kw;
+  }
+
+  ifnot (sh_re_match_line(SH_Indent_Kws_Re))
+    return NULL;
 
   % one line do..done blocks
   if (sh_re_match_line("\\bdo\\b.*done\\s*#?"))
     return NULL;
 
   % if..fi, case..esac one-liners
-  if (sh_re_match_line("\\b(if|case)\\b.*\\b(fi|esac)\\b\\s*#?"))
+  if (sh_re_match_line("\\b(if|case)\\b.*?\\b(fi|esac)\\b\\s*#?"))
     return NULL;
 
   kw = pcre_matches(SH_Indent_Kws_Re, sh_line_as_str())[-1];
@@ -242,15 +280,16 @@ private define sh_get_indent_kw()
   if (kw == NULL) return NULL;
 
   kw = strtrim(kw);
+  if (sh_kw_is_in_string(kw)) kw = NULL;
   return kw;
 }
 
 % Return the previous keyword before the current line and its column
 private define sh_get_prev_kw_and_col()
 {
-  push_spot();
   try
   {
+    push_spot();
     do
       ifnot (up(1)) return (NULL, 0);
     while (NULL == sh_get_indent_kw());
@@ -348,6 +387,12 @@ define sh_indent_line()
   variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
   variable heredoc_beg_token = sh_get_heredoc_beg_token();
 
+  if (sh_is_line_continued()) % continued lines ...\
+  {
+    col = sh_find_col_matching_kw(0);
+    return sh_indent_spaces(col + SH_Indent);
+  }
+
   ifnot (NULL == heredoc_beg_token)
     SH_Heredoc_Beg_Token = heredoc_beg_token;
 
@@ -355,34 +400,17 @@ define sh_indent_line()
   {
     % at the end of heredoc 
     if (sh_re_match_line(strcat("^\\s*", SH_Heredoc_Beg_Token)))
+    {
+      SH_Heredoc_Beg_Token = NULL;
       return sh_indent_spaces(0);
+    }
   }
 
   sh_this_kw = sh_get_indent_kw();
   (sh_prev_kw, sh_prev_kw_col) = sh_get_prev_kw_and_col();
- 
-  if (sh_is_line_continued()) % continued lines ...\
-  {
-    col = sh_find_col_matching_kw(0);
-    return sh_indent_spaces(col + SH_Indent);
-  }
-
-  % function definitions ..."func()" always flush left unless within
-  % a conditional statement.
-  if (sh_this_kw == "()")
-  {
-    if (any(sh_prev_kw == ["if","then","else","elif","case_pat"]))
-      return sh_indent_spaces(sh_prev_kw_col + SH_Indent);
-
-    return sh_indent_spaces(0);
-  }
-
-  % Align a 'then' keyword on a line by itself to 'if' or 'elif'
-  if ((sh_this_kw == "then") && (any(sh_prev_kw == ["if","elif"])))
-    return sh_indent_spaces(sh_prev_kw_col);
 
   % Align a 'do' keyword on a line by itself to its loop keywords
-  if ((sh_this_kw == "do") && (any(sh_prev_kw == ["for","while","until"])))
+  if ((sh_this_kw == "do") && (any(sh_prev_kw == ["for","while","until","select"])))
     return sh_indent_spaces(sh_prev_kw_col);
 
   % indent a case pattern relative to its case keyword by one level
@@ -393,14 +421,18 @@ define sh_indent_line()
   }
 
   % Align these keywords to their matching keywords, fi..if, esac..case, etc
-  if (any(sh_this_kw == ["then","fi","else","elif","done","esac","}",")"]))
+  if (any(sh_this_kw == ["fi","else","elif","done","esac","}",")"]))
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col);
   }
 
+  % 'then' on a line by itself aligned to 'if' or 'elif'
+  if ((sh_this_kw == "then") && any(sh_prev_kw == ["if","elif"]))
+    return sh_indent_spaces(sh_prev_kw_col);
+
   % Indent lines following these keywords.
-  if (any(sh_prev_kw == ["if","then","do","case","else","elif","{","(", "case_pat"]))
+  if (any(sh_prev_kw == ["if","for","then","do","case","else","elif","{","(", "case_pat"]))
     return sh_indent_spaces(sh_prev_kw_col + SH_Indent);
 
   % Align lines under these keywords
