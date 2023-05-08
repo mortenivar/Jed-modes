@@ -52,7 +52,7 @@ block that may be inserted into the ~/.jedrc:
     variable SH_Indent = 2;
     variable SH_Browser = "lynx";
     variable SH_Expand_Kw_Syntax = 0;
-    variable SH_Shellcheck_Log_Level = "warning";
+    variable SH_Shellcheck_Severity_Level = "warning";
 
 - SH_Indent, determines the number of spaces for an indentation level.
 
@@ -74,7 +74,7 @@ with the editing point placed between 'for' and 'in'. If insertion is done
 within an existing statement block, it will be indented relative to that
 block.
 
-- SH_Shellcheck_Log_Level, specifies the minimum severity of errors to
+- SH_Shellcheck_Severity_Level, specifies the minimum severity of errors to
   consider. Valid values in order of severity are "error", "warning", "info"
   and "style".
 
