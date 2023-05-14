@@ -56,9 +56,10 @@ public define glyph()
   ifnot (search_file (Unicode_Data_File, re, 200))
     return flush("nothing matched");
 
-  pat = pcre_compile("^\\s*[A-Z0-9]{4,}");
+  _stk_reverse(_stkdepth); 
   match_lines = __pop_list(_stkdepth());
   match_lines = list_to_array(match_lines);
+  pat = pcre_compile("^\\s*[A-Z0-9]{4,}");
   % only lines with a hex character code
   match_lines = match_lines[where(array_map(Int_Type, &pcre_exec,
                                             pat, match_lines))];
