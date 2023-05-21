@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.5.5",
+  Version = "0.5.6",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -37,7 +37,6 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 % Regular expression for keywords with some added indentation triggers
 % such as parentheses and braces. If 'do' is on the same line as loop
 % keyword, 'do' should always be matched.
-%SH_Indent_Kws_Re = strcat("^.*?\\b(${SH_Indent_Kws_Re})\\b(?:.*(\\bdo\\b|{)\\s*$)?"$,
 SH_Indent_Kws_Re = strcat("^\\s*\\b(${SH_Indent_Kws_Re})\\b(?:.*(\\bdo\\b|{)\\s*$)?"$,
                           % right parenthesis at begin of line
                           "|^\\s*(\\))\\s*",
@@ -127,6 +126,7 @@ private define sh_add_kws_to_table(kws, tbl, n)
 create_syntax_table (Mode);
 % only identify strings with '"' and not '\''
 define_syntax('"', '"', Mode);
+define_syntax ("#", "",'%',  Mode);
 
 % Pilfered from shmode.sl that ships with Jed
 #ifdef HAS_DFA_SYNTAX
@@ -190,6 +190,7 @@ private define sh_get_heredoc_beg_token()
   ifnot (heredoc_beg_token == NULL)
     heredoc_beg_token = strtrim(heredoc_beg_token, "-\"\' ");
 
+  heredoc_beg_token = str_quote_string (heredoc_beg_token, "{}()", '\\');
   return heredoc_beg_token;
 }
 
@@ -219,7 +220,7 @@ private define sh_kw_is_in_string(kw)
       kw = strcat("\\<", kw, "\\>"); % whole word
 
     () = re_fsearch(kw);
-    if (-1 == parse_to_point()) return 1;
+    if (parse_to_point() < 0) return 1;
     return 0;
   }
   finally pop_spot();
@@ -280,7 +281,6 @@ private define sh_get_indent_kw()
   if (kw == NULL) return NULL;
 
   kw = strtrim(kw);
-  if (sh_kw_is_in_string(kw)) kw = NULL;
   return kw;
 }
 
@@ -385,7 +385,10 @@ private variable SH_Heredoc_Beg_Token = NULL;
 define sh_indent_line()
 {
   variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
-  variable heredoc_beg_token = sh_get_heredoc_beg_token();
+  variable heredoc_beg_token = NULL;
+
+  if (is_substr(sh_line_as_str(), "<<"))
+    heredoc_beg_token = sh_get_heredoc_beg_token();
 
   if (sh_is_line_continued()) % continued lines ...\
   {
