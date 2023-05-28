@@ -49,6 +49,9 @@ append_to_hook ("load_popup_hooks", &glyph_load_popup_hook);
 
 public define glyph()
 {
+  ifnot (1 == file_status(Unicode_Data_File))
+    throw OpenError, "$Unicode_Data_File not found"$;
+
   variable name, pat, glyph_hex, match_lines, match_line, i = 0;
   variable re = read_mini("Search for glyph:", "", "");
 
@@ -68,8 +71,7 @@ public define glyph()
   {
     match_line = strtrim(match_lines[i]);
     glyph_hex = pcre_matches("[A-Z0-9]{4,}", match_line)[-1];
-    name = pcre_matches(";.*?;", match_line)[-1];
-    name = strtrim(name, ";");
+    name = pcre_matches(";(.*?);", match_line)[-1];
     ifnot (NULL == glyph_hex)
     {
       glyph_hex = strcat("0x", glyph_hex);
