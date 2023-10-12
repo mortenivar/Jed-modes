@@ -80,6 +80,20 @@ block.
 
                                     Keys
 
+Please not that some of the key combinations below may not work for you. For
+instance the <shift>-up key combo is defined in a library file called
+keydefs.sl, but the definition of the keysyms therein may or may not
+correspond to that of your own environment. In my case, I have defined the
+following keys that did not correspond with my shell enviroment, like this:
+
+  variable Key_Shift_Up   = "^[[1;2A";
+  variable Key_Shift_Down = "^[[1;2B";
+
+and put those definitions in a separate file that I source from my ~/.jedrc
+
+You can find out what your shell environment sees as your keysyms by typing
+<ctrl>-v and then type the key combination.
+
 
 <ctrl>-c C,   will execute the shellcheck program (if installed) on the
               current script and color lines that are identified by
