@@ -80,9 +80,9 @@ block.
 
                                     Keys
 
-Please not that some of the key combinations below may not work for you. For
+Please note that some of the key combinations below may not work for you. For
 instance the <shift>-up key combo is defined in a library file called
-keydefs.sl, but the definition of the keysyms therein may or may not
+keydefs.sl, but the definitions of the keysyms therein may or may not
 correspond to that of your own environment. In my case, I have defined the
 following keys that did not correspond with my shell enviroment, like this:
 
