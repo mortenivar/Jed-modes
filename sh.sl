@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.5.7",
+  Version = "0.6.0",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -39,12 +39,11 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 % keyword, 'do' should always be matched. If a left parenthesis is at
 % the end of the line, it should always be matched. Also allow for
 % trailing comments in both cases.
-SH_Indent_Kws_Re = strcat("^\\s*\\b($SH_Indent_Kws_Re)\\b\\s*(?:.*?(\\bdo\\b|{)?)\\s*(?:[^$\\{]#.*?)?$"$,
+SH_Indent_Kws_Re = strcat("^\\h*\\b($SH_Indent_Kws_Re)\\b\\h*(?:.*?(\\bdo\\b|{)?)\\h*(?:[^$\\{]#.*?)?$"$,
                           % right parenthesis at begin of line
-                          "|^\\s*(\\))\\s*",
+                          "|^\\h*(\\))\\h*",
                           % left /parenthesis or function definition, allow for trailing comment
-                          "|(\\(|\\(\\))\\s*(?:#.*?)?$"
-                         );
+                          "|(\\(|\\(\\))\\h*(?:#.*?)?$");
 
 % Associative array that will be used to position its paired keywords
 % to each other.
@@ -53,6 +52,7 @@ SH_Kws_Hash["esac"] = "case";
 SH_Kws_Hash["done"] = "do";
 SH_Kws_Hash[")"] = "(";
 SH_Kws_Hash["}"] = "{";
+SH_Kws_Hash["}{"] = "{";
 SH_Kws_Hash["fi"] = "if";
 SH_Kws_Hash["else"] = "if";
 SH_Kws_Hash["elif"] = "if";
@@ -83,13 +83,21 @@ private variable SH_Builtins =
    comptry,compvalues,disable,disown,echotc,echoti,emulate,false,functions,
    getcap,getln,log,noglob,pushln,sched,setcap,setopt,shopt,stat,true,unfunction,
    unsetopt,vared,where,which,zcompile,zformat,zftp,zle,zmodload,zparseopts,
-   zprof,zpty,zregexparse,zsocket,zstyle,ztcp`;
+   zprof,zpty,zregexparse,zsocket,zstyle,ztcp,coproc,compgen,complete,compopt,
+   function,allexport,braceexpand,emacs,errexit,errtrace,functrace,hashall,histexpand,
+   keyword,monitor,noexec,nounset,onecmd,physical,pipefail,posix,privileged,
+   verbose,xtrace,autocd,cdspell,checkhash,checkjobs,checkwinsize,cmdhist,compat31,
+   compat32,compat40,compat41,dirspell,dotglob,execfail,expand_aliases,extdebug,
+   extglob,extquote,failglob,force_fignore,globstar,gnu_errfmt,histappend,histreedit,
+   histverify,hostcomplete,huponexit,interactive_comments,lastpipe,lithist,login_shell,
+   mailwarn,no_empty_cmd_completion,nocaseglob,nocasematch,nullglob,progcomp,promptvars,
+   restricted_shell,shift_verbose,sourcepath,xpg_echo,alloc,dosh,hist,map,repeat,savehistory`;
 
 SH_Builtins = strtrim(strchop(SH_Builtins, ',', 0));
 
 % For highlighting.
 private variable SH_Variables =
-  `allow_null_glob_expansion,auto_resume,BASH,BASH_ENV,BASH_VERSINFO,
+   `allow_null_glob_expansion,auto_resume,BASH,BASH_ENV,BASH_VERSINFO,
    BASH_VERSION,cdable_vars,COMP_CWORD,COMP_LINE,COMP_POINT,
    COMP_WORDS,COMPREPLY,DIRSTACK,ENV,EUID,FCEDIT,FIGNORE,IFS,
    FUNCNAME,glob_dot_filenames,GLOBIGNORE,GROUPS,histchars,
@@ -103,7 +111,17 @@ private variable SH_Variables =
    HISTCHARS,hostcmds,hosts,HOSTS,LISTMAX,LITHISTSIZE,LOGCHECK,mailpath,
    manpath,NULLCMD,optcmds,path,POSTEDIT,prompt,PROMPT,PROMPT2,PROMPT3,
    PROMPT4,psvar,PSVAR,READNULLCMD,REPORTTIME,RPROMPT,RPS1,SAVEHIST,SPROMPT,
-   STTY,TIMEFMT,TMOUT,TMPPREFIX,varcmds,watch,WATCH,WATCHFMT,WORDCHARS,ZDOTDIR`;
+   STTY,TIMEFMT,TMOUT,TMPPREFIX,varcmds,watch,WATCH,WATCHFMT,WORDCHARS,ZDOTDIR,
+   BASHPID,BASH_ALIASES,BASH_ARGC,BASH_ARGV,BASH_CMDS,BASH_COMMAND,
+   BASH_EXECUTION_STRING,BASH_LINENO,BASHOPTS,BASH_REMATCH,BASH_SOURCE,
+   BASH_SUBSHELL,BASH_XTRACEFD,CDPATH,COLUMNS,COMP_KEY,COMP_TYPE,
+   COMP_WORDBREAKS,EMACS,FUNCNEST,HISTTIMEFORMAT,HOME,HOSTNAME,
+   LANG,LC_ALL,LC_COLLATE,LC_CTYPE,LC_MESSAGES,LC_NUMERIC,LINES,
+   MAIL,MAILCHECK,MAILPATH,OPTARG,OPTIND,PATH,PROMPT_DIRTRIM,PS1,PS2,
+   SHELL,TMPDIR,SIGABRT,SIGALRM,SIGBUS,SIGCHLD,SIGCONT,SIGFPE,SIGHUP,
+   SIGILL,SIGINT,SIGIO,SIGKILL,SIGPIPE,SIGPROF,SIGPWR,SIGQUIT,SIGRTMAX,
+   SIGRTMIN,SIGSEGV,SIGSTKFLT,SIGSTOP,SIGSYS,SIGTERM,SIGTRAP,SIGTSTP,
+   SIGTTIN,SIGTTOU,SIGURG,SIGUSR1,SIGUSR2,SIGVTALRM,SIGWINCH,SIGXCPU,SIGXFSZ`;
 
 SH_Variables = strtrim(strchop(SH_Variables, ',', 0));
 
@@ -126,28 +144,43 @@ private define sh_add_kws_to_table(kws, tbl, n)
 }
 
 create_syntax_table (Mode);
-% only identify strings with '"' and not '\''
-define_syntax('"', '"', Mode);
+
+% The following two, now slightly modified syntax schemes were
+% pilfered from shmode.sl that ships with Jed:
+
+% Unfortunately, the editor cannot currently correctly deal with multiple 
+% string characters.  So, inorder to handle something like:
+%    echo "I'd rather be home"
+% make the '"' character the actual string character but also give '\'' 
+% a string syntax.  However, this will cause '"' to give problems but 
+% usually, '"' characters will be paired.
+define_syntax ('\'', '"', Mode);
+define_syntax ('"', '"', Mode);
+define_syntax ('\\', '\\', Mode);
+define_syntax ("-0-9a-zA-Z_", 'w', Mode);        % words
+define_syntax ("-+0-9", '0', Mode);   % Numbers
+define_syntax (",;:", ',', Mode);
+define_syntax ("%-+/&*=<>|!~^", '+', Mode);
 define_syntax ("#", "",'%',  Mode);
 
-% Pilfered from shmode.sl that ships with Jed
 #ifdef HAS_DFA_SYNTAX
 %%DFA_CACHE_BEGIN %%%
 private define setup_dfa_callback (Mode)
 {
-   % dfa_enable_highlight_cache ("sh.dfa", Mode);
-   dfa_define_highlight_rule ("\\\\.", "normal", Mode);
-   dfa_define_highlight_rule ("#.*", "comment", Mode);
-   dfa_define_highlight_rule ("[0-9]+", "number", Mode);
-   dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*\"", "string", Mode);
-   dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*$", "string", Mode);
-   dfa_define_highlight_rule ("'[^']*'", "string", Mode);
-   dfa_define_highlight_rule ("'[^']*$", "string", Mode);
-   dfa_define_highlight_rule ("[\\|&;\\(\\)<>]", "Qdelimiter", Mode);
-   dfa_define_highlight_rule ("[\\[\\]\\*\\?]", "Qoperator", Mode);
-   dfa_define_highlight_rule ("[^ \t\"'\\\\\\|&;\\(\\)<>\\[\\]\\*\\?]+", "Knormal", Mode);
-   dfa_define_highlight_rule (".", "normal", Mode);
-   dfa_build_highlight_table (Mode);
+  dfa_define_highlight_rule ("[\\][a-zA-Z]"R, "number", Mode); % backslash escape sequences \a, \E, etc.
+  dfa_define_highlight_rule ("[&\|]"R, "operator", Mode);
+  dfa_define_highlight_rule ("\\\\\[a-z]", "comment", Mode);
+  dfa_define_highlight_rule ("#[^\{\\$].*", "comment", Mode);
+  dfa_define_highlight_rule ("[0-9]+", "number", Mode);
+  dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*\"", "string", Mode);
+  dfa_define_highlight_rule ("\"([^\\\\\"]|\\\\.)*$", "string", Mode);
+  dfa_define_highlight_rule ("'[^']*'", "string", Mode);
+  dfa_define_highlight_rule ("'[^']*$", "string", Mode);
+  dfa_define_highlight_rule ("[\\|&;\\(\\)<>]", "Qdelimiter", Mode);
+  dfa_define_highlight_rule ("[\\[\\]\\*\\?]", "Qoperator", Mode);
+  dfa_define_highlight_rule ("[^ \t\"'\\\\\\|&;\\(\\)<>\\[\\]\\*\\?]+", "Knormal", Mode);
+  dfa_define_highlight_rule (".", "normal", Mode);
+  dfa_build_highlight_table (Mode);
 }
 dfa_set_init_callback (&setup_dfa_callback, Mode);
 %%DFA_CACHE_END %%%
@@ -183,19 +216,6 @@ private define sh_indent_spaces(n)
   bol_trim(); insert_spaces(n);
 }
 
-% Extract the word identifying the beginning of a "here document"
-private define sh_get_heredoc_beg_token()
-{
-  variable re = "^\\s*(cat|printf)?.*?<<-?(*SKIP)(.+?(?=\\s|\\Z))";
-  variable heredoc_beg_token = pcre_matches(re, sh_line_as_str())[-1];
-  ifnot (heredoc_beg_token == NULL)
-  {
-    heredoc_beg_token = strtrim(heredoc_beg_token, "-\"\'\\\\ ");
-    heredoc_beg_token = str_quote_string (heredoc_beg_token, "{}()", '\\');
-    return heredoc_beg_token;
-  }
-}
-
 % Check if any number of occurrences of one character in a _line_ is not
 % balanced by a similar number of another character, e.g. '{' and '}'.
 private define sh_is_char_unbalanced(ch1, ch2)
@@ -211,54 +231,90 @@ private define sh_is_char_unbalanced(ch1, ch2)
   return 0;
 }
 
+% Count number of characters in a line. Designed for the counting of
+% braces. If brace is escaped with '\' don't include in count.
+private define sh_count_braces(ch)
+{
+  variable pos = 0, n = 0, re = "(?<!\\\\)$ch"$;
+  variable p = pcre_compile(re);
+  variable str = sh_line_as_str();
+  
+  while (pcre_exec(p, str, pos))
+  {
+    pos = pcre_nth_match(p, 0)[1];
+    n++;
+  }
+  return n;
+}
+
+% Detect a case/esac pattern
 private define sh_is_case_pat()
 {
   push_spot();
 
   if (up(1))
   {
-    while (sh_re_match_line("^\\s*#")) go_up_1();
+    while (sh_re_match_line("^\\h*#") || sh_re_match_line("^\\h*$")) go_up_1();
     ((sh_re_match_line(";;")) || (sh_re_match_line("case")));
   }
 
   pop_spot();
 }
 
+private variable Sh_Heredoc_Beg_Token = NULL;
+private variable Sh_Before_Heredoc_Col = 0;
+private define sh_get_prev_kw_and_col();
+
 % Return the keyword on the current line
 private define sh_get_indent_kw()
 {
-  variable kw = NULL;
-
-  if (sh_re_match_line("^\\s*$")) return NULL;
-  if (sh_re_match_line("^\\s*#")) return NULL;
+  if (sh_re_match_line("^\\h*$")) return NULL;
+  if (sh_re_match_line("^\\h*#")) return NULL;
+  
+  % The regexp to extract 'heredoc' identifier words. It covers all the
+  % odd cases in the scripts I have on my computer.
+  variable heredoc_re = "^\\h*(cat|printf)?.*?[^<]<<(?!<)\\h*[-]?[_\'\"\\\\]?([-_A-Za-z!]+)[\'\"]?(?:.*?)?$";
 
   % case/esac patterns
-  if (2 == sh_is_char_unbalanced('(',')'))
-  {
+  if (2 == sh_is_char_unbalanced('(',')')) % ')' not balanced by '('
     if (sh_is_case_pat()) return "case_pat";
-    else return ")";
+
+  ifnot (NULL == pcre_matches(heredoc_re, sh_line_as_str())[-1])
+  {
+    Sh_Heredoc_Beg_Token = pcre_matches(heredoc_re, sh_line_as_str())[-1];
+    % save the indentation level from before the 'heredoc' string
+    % began in a global variable so this indentation level can be
+    % picked up again after the end of the 'heredoc' string.
+    (, Sh_Before_Heredoc_Col) = sh_get_prev_kw_and_col();
+    return "heredoc_beg_token";
   }
 
-  if (1 == sh_is_char_unbalanced('(', ')')) return "(";
-  if (1 == sh_is_char_unbalanced('{', '}')) return "{";
+  if (sh_re_match_line("^\\h*$Sh_Heredoc_Beg_Token\\h*$"$)) % end of 'heredoc'
+    return "heredoc_end_token";
+
+  if (1 == sh_is_char_unbalanced('(', ')'))
+    ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return "(";
+
+  if (1 == sh_is_char_unbalanced('{', '}')) 
+    if (sh_re_match_line("(?<!\\\\{)")) return "{";
   if (2 == sh_is_char_unbalanced('{', '}')) return "}";
 
-  ifnot (NULL == pcre_matches("^\\s*(cat|printf)?.*?[^<]<{2}[^<]", sh_line_as_str()))
-    return "heredoc_beg_word";
+  % These are not very common, but occasionally there are lines where
+  % curly braces are used to delimit statment blocks and where the
+  % right brace ending the previous block and the left brace beginning
+  % the following block are on the same line as e.g. in "} else if {"
+  % so create a special "keyword" for that.
+  if (sh_re_match_line("^\\h*}.*{\\h*$")) return "}{";
 
   ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return NULL;
 
   % one line do..done blocks
-  if (sh_re_match_line("\\bdo\\b.*done\\s*#?")) return NULL;
+  if (sh_re_match_line("\\bdo\\b.*done\\h*#?")) return NULL;
 
   % if..fi, case..esac one-liners
-  if (sh_re_match_line("\\b(if|case)\\b.*?\\b(fi|esac)\\b\\s*#?")) return NULL;
+  if (sh_re_match_line("^\\b(if|case)\\b.*?\\b(fi|esac)\\b\\h*#?")) return NULL;
 
-  kw = pcre_matches(SH_Indent_Kws_Re, sh_line_as_str())[-1];
-
-  if (kw == NULL) return NULL;
-
-  kw = strtrim(kw);
+  variable kw = pcre_matches(SH_Indent_Kws_Re, sh_line_as_str())[-1];
   return kw;
 }
 
@@ -340,6 +396,38 @@ private define sh_find_col_matching_kw(goto)
       break;
     }
 
+    % The parsing of curly braces
+    if ((kw == "}") || (kw == "}{"))
+    {
+      if (kw == "}{") matching_kw_n--;
+
+      do
+      {
+        if (kw == "}" && sh_get_indent_kw == "}{")
+        {
+          if (kw_n - matching_kw_n == 1) break;
+        }
+
+        kw_n += sh_count_braces("}");
+        matching_kw_n += sh_count_braces("{");
+        if (kw_n == matching_kw_n) break;
+      }
+      while (up(1));
+      break;
+    }
+
+    if (sh_get_indent_kw == ")")
+    {
+      do
+      {
+        kw_n += count_char_occurrences(sh_line_as_str, ')');
+        matching_kw_n += count_char_occurrences(sh_line_as_str, '(');
+        if (kw_n == matching_kw_n) break;
+      }
+      while (up(1));
+      break;
+    }
+  
     % otherwise match the other keywords in the SH_Kws_Hash above.
     matching_kw = SH_Kws_Hash[kw];
     do
@@ -357,34 +445,15 @@ private define sh_find_col_matching_kw(goto)
   ifnot (goto) pop_spot();
 }
 
-private variable SH_Heredoc_Beg_Token = NULL;
-
 % The rules-based indentation of lines.
-define sh_indent_line()
+private define sh_indent_line()
 {
   variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
-  variable heredoc_beg_token = NULL;
-
-  if (sh_re_match_line("^\\s*(cat|printf)?.*?<{2}"))
-    heredoc_beg_token = sh_get_heredoc_beg_token();
 
   if (sh_is_line_continued()) % continued lines ...\
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col + SH_Indent);
-  }
-
-  ifnot (NULL == heredoc_beg_token)
-    SH_Heredoc_Beg_Token = heredoc_beg_token;
-
-  ifnot (NULL == SH_Heredoc_Beg_Token)
-  {
-    % at the end of heredoc 
-    if (sh_re_match_line(strcat("^\\s*", SH_Heredoc_Beg_Token)))
-    {
-      SH_Heredoc_Beg_Token = NULL;
-      return sh_indent_spaces(0);
-    }
   }
 
   sh_this_kw = sh_get_indent_kw();
@@ -402,19 +471,31 @@ define sh_indent_line()
   }
 
   % Align these keywords to their matching keywords, fi..if, esac..case, etc
-  if (any(sh_this_kw == ["fi","else","elif","done","esac","}",")"]))
+  if (any(sh_this_kw == ["fi","else","elif","done","esac","}",")","}{"]))
   {
     col = sh_find_col_matching_kw(0);
     return sh_indent_spaces(col);
   }
+
+  % Align the identifier word for the end of a 'heredoc' string flush left
+  if (sh_this_kw == "heredoc_end_token")
+    return sh_indent_spaces(0);
+
+  % ... then resume indentation from before 'heredoc' string
+  if (sh_prev_kw == "heredoc_end_token")
+    return sh_indent_spaces(Sh_Before_Heredoc_Col);
 
   % 'then' on a line by itself aligned to 'if' or 'elif'
   if ((sh_this_kw == "then") && any(sh_prev_kw == ["if","elif"]))
     return sh_indent_spaces(sh_prev_kw_col);
 
   % Indent lines following these keywords.
-  if (any(sh_prev_kw == ["if","for","then","do","case","else","elif","{","(", "case_pat","heredoc_beg_word"]))
+  if (any(sh_prev_kw == ["if","for","then","do","case","else","elif","{","(", "case_pat","heredoc_beg_token","}{"]))
     return sh_indent_spaces(sh_prev_kw_col + SH_Indent);
+
+  % function definitions aligned flush left unless after those keywords
+  if (sh_this_kw == "()" && not any(sh_prev_kw == ["if","for","then","do","case","else","elif","}","}{","{","(", "case_pat"]))
+    return sh_indent_spaces(0);
 
   % Align lines under these keywords
   if (any(sh_prev_kw == ["esac","done","fi","}","eval",")","()"]))
@@ -434,7 +515,6 @@ define sh_indent_region_or_line()
   ifnot (is_visible_mark())
     return sh_indent_line();
 
-  trim_buffer();
   check_region(0);
   reg_endline = what_line();
   pop_mark_1();
@@ -481,12 +561,16 @@ private define sh_insert_and_expand_construct()
 % in long convoluted syntaxes.
 define sh_show_matching_kw()
 {
-  variable kw = sh_get_indent_kw(), matching_kw;
+  variable kw = sh_get_indent_kw(), matching_kw, n = 0;
   if (kw == NULL) return;
   ifnot (assoc_key_exists(SH_Kws_Hash, kw)) return;
   matching_kw = SH_Kws_Hash[kw];
   () = sh_find_col_matching_kw(1); % go to matching kw
-  () = ffind("$matching_kw"$);
+  if (matching_kw == "{")
+  {
+    eol();
+    go_left_1();
+  }
   push_visible_mark();
   () = right(strlen(matching_kw));
   update(1); sleep(1.5);
@@ -561,7 +645,7 @@ define sh_index_shellcheck_errors()
   }
   pop_spot();
   call("redraw");
-  flush("done");
+  vmessage("found %d lines with issues", length(SH_Shellcheck_Lines));
   set_blocal_var(1, "SH_Shellcheck_Indexed");
 }
 
@@ -610,16 +694,69 @@ define sh_show_on_shellcheck_wiki()
     () = run_program("$SH_Browser https://www.shellcheck.net/wiki/$SH_Shellcheck_Wiki_Entry"$);
 }
 
+% Execute the code in a marked region or the entire buffer if no region
+% is marked. This ensures that the code is executed in the shell which
+% is specified the shebang directive. The output from the execution
+% is shown in another window if more than one line. If the output is
+% only one line, it is diplayed in the message area.
+define sh_exec_region_or_buffer()
+{
+  variable lines, cmd, str, output, fp, shell;
+  % extract the shell name from the shebang directive
+  variable shell_re = "^#!\\h*/[a-z]+(?:env)?.*?([a-z]+)(?:\\h-e)?$";
+  variable tmpfile = make_tmp_file("/tmp/shmode");
+  variable outfile = make_tmp_file("/tmp/shmode_out");
+  variable env_prg = search_path_for_file (getenv("PATH"), "env");
+  
+  push_spot_bob();
+  shell = pcre_matches(shell_re, sh_line_as_str())[-1];
+  pop_spot();
+
+  if (shell == NULL) shell = "sh";
+
+  try
+  {
+    push_spot();
+    ifnot (markp()) mark_buffer ();
+    str = bufsubstr();
+    pop_spot();
+    () = write_string_to_file(str, tmpfile);
+    cmd = "$env_prg $shell $tmpfile >$outfile 2>&1"$;
+    () = system(cmd);
+    fp = fopen(outfile, "r");
+    if (fp == NULL) throw ReadError, "could not read $outfile"$;
+    lines = fgetslines(fp);
+    () = fclose(fp);
+    output = strtrim(strjoin(lines, ""));
+  }
+  finally
+  {
+    () = remove(outfile);
+    () = remove(tmpfile);
+  }
+  
+  if (length(lines) > 1)
+  {
+    pop2buf("***Output From ${cmd}***"$);
+    insert(output);
+    bob();
+    most_mode();
+    flush("type 'q' to close this window");
+  }
+  else flush(output);
+}
+
 define sh_electric_right_brace()
 {
   insert("}");
-  if (sh_re_match_line("^\\s*}\\s*$"))
+  if (sh_re_match_line("^\\h*}\\h*$"))
     _sh_newline_and_indent();
 }
 
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 definekey_reserved ("sh_show_on_shellcheck_wiki", "W", Mode);
 definekey_reserved ("sh_index_shellcheck_errors", "C", Mode);
+definekey_reserved ("sh_exec_region_or_buffer", "E", Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
@@ -632,13 +769,13 @@ private define sh_menu(menu)
   menu_append_item (menu, "Go to Previous Shellcheck Error Line", "sh_goto_next_or_prev_shellcheck_entry\(-1\)");
   menu_append_item (menu, "Show on Shellcheck Wiki", "sh_show_on_shellcheck_wiki");
   menu_append_item (menu, "Show Matching Keyword", "sh_show_matching_kw");
+  menu_append_item (menu, "Execute Code in Region or Buffer", "sh_exec_region_or_buffer");
 }
 
 define sh_mode()
 {
   define_blocal_var("SH_Shellcheck_Indexed", 0);
   use_syntax_table(Mode);
-  use_dfa_syntax(1);
   sh_add_kws_to_table(SH_Kws, Mode, 0);
   sh_add_kws_to_table(SH_Builtins, Mode, 1);
   sh_add_kws_to_table(SH_Variables, Mode, 1);
