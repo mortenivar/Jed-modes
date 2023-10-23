@@ -36,6 +36,9 @@ Then make sure that your scripts have the "*.sh" extension.
   block is inserted within an existing block, it will be nicely indented
   relative to that block.
 
+- Execution of code in a marked region or in the whole buffer. Show output
+  in another window.
+
 - If the shellcheck program is installed, you can have it check the current
   buffer for errors/warnings/notes and have offending lines colored in the
   color of the preprocessor directive, often magenta or brightgreen. You can
@@ -46,7 +49,7 @@ Then make sure that your scripts have the "*.sh" extension.
                                 Customization
 
 
-Three variables may be set in ~/.jedrc, shown here with their defaults as a
+Four variables may be set in ~/.jedrc, shown here with their defaults as a
 block that may be inserted into the ~/.jedrc:
 
     variable SH_Indent = 2;
@@ -77,7 +80,17 @@ block.
 - SH_Shellcheck_Severity_Level, specifies the minimum severity of errors to
   consider. Valid values in order of severity are "error", "warning", "info"
   and "style".
+  
+                             Syntax Highlighting
+                             
+If DFA syntax is built into Jed, you may use the mode's DFA highlighting
+scheme by placing the following lines in your ~/.jedrc in the sh_mode_hook
+like this:
 
+  define sh_mode_hook ()
+  {
+    use_dfa_syntax(1);
+  }
                                     Keys
 
 Please note that some of the key combinations below may not work for you. For
@@ -113,6 +126,11 @@ You can find out what your shell environment sees as your keysyms by typing
               error line in a browser. You need to have jumped to an error
               line first with one of the two key combos above.
 
+<ctrl>-c E    Execute code in a marked region or if no region is marked then
+              in the whole buffer whole buffer. If output is more than one
+              line long, the output will be shown in another window, else it
+              will be shown in the message area.
+
 <ctrl>-pgup,  briefly show the matching keyword that begins a code block or
               sub-block, if standing on the keyword that ends the block.
               Sometimes convenient in long, convoluted constructs.
@@ -146,7 +164,7 @@ scripts, but of course there are some ...
 
                                     Issues
 
-A string spanning more than one line won't be identified as such and words
+A string spanning more than one line may not be identified as such and words
 therein that happen to be identical to keywords ("if", "for", etc) will
 affect indentation even if they shouldn't. This could have been avoided
 defining a string syntax with the define_syntax() function and then using
