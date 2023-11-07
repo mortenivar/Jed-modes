@@ -141,6 +141,29 @@ You can find out what your shell environment sees as your keysyms by typing
               line in an indented position.
 
 
+                       A Note on the Formatting Style
+                            
+
+In the absence of an established formatting standard for shell scripts, one
+has to make a decision on what standard to use and I have chosen to follow
+the standard laid down in Google's Shell Style Guide at:
+
+   https://google.github.io/styleguide/shellguide.html#s5-formatting
+
+which among other things promotes these principles:
+
+   - The use of TABS for indentation is discouraged
+   
+   - An indentation level should be two spaces
+   
+   - 'do' and '; then' shall be on the same line as the 'while', 'for' or
+     'if' (followed in the keyword syntax expansion macros)
+   
+   - case/esac patterns are indented on level from the 'case' keyword
+   
+   - case/esac actions are indented one level from their patterns
+
+
                             How Indentation Works
 
 
@@ -175,4 +198,4 @@ solution seems to have worse effects.
  (probably several others)
 
 
-Morten Bo Johansen, listmail at mbjnet dot dk
+Morten Bo Johansen, <morten.bo.johansen@gmail.com>
