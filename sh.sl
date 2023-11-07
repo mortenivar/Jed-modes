@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.6.0",
+  Version = "0.6.1",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -445,7 +445,8 @@ private define sh_find_col_matching_kw(goto)
   ifnot (goto) pop_spot();
 }
 
-% The rules-based indentation of lines.
+% The rules-based indentation of lines. The order in which these rules
+% appear matters to some extent.
 private define sh_indent_line()
 {
   variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
@@ -566,10 +567,10 @@ define sh_show_matching_kw()
   ifnot (assoc_key_exists(SH_Kws_Hash, kw)) return;
   matching_kw = SH_Kws_Hash[kw];
   () = sh_find_col_matching_kw(1); % go to matching kw
-  if (matching_kw == "{")
+  if (matching_kw == "{" || matching_kw == "do")
   {
     eol();
-    go_left_1();
+    () = bfind(matching_kw);
   }
   push_visible_mark();
   () = right(strlen(matching_kw));
@@ -753,6 +754,19 @@ define sh_electric_right_brace()
     _sh_newline_and_indent();
 }
 
+% When typing a left curly brace immediately after a function definition
+% move it to the next line and put editing point in an indented position
+% after curly brace
+define sh_electric_left_brace()
+{
+	if ("()" == sh_get_indent_kw()) % function definition
+	{
+		insert("\n{");
+		_sh_newline_and_indent();
+	}
+	else insert("{");
+}
+
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 definekey_reserved ("sh_show_on_shellcheck_wiki", "W", Mode);
 definekey_reserved ("sh_index_shellcheck_errors", "C", Mode);
@@ -761,6 +775,7 @@ definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
 definekey ("sh_electric_right_brace", "}", Mode);
+definekey ("sh_electric_left_brace", "{", Mode);
 
 private define sh_menu(menu)
 {
