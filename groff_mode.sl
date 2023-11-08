@@ -1,33 +1,23 @@
-% _debug_info=1;_traceback=1;_slangtrace=1;
 %% groff_mode.sl - a Jed editing mode for nroff/troff/groff files
 %% 
-%% Copyright: Morten Bo Johansen <mbj@mbjnet.dk>
+%% Copyright: Morten Bo Johansen <morten.bo.johansen$gmail.com>
 %% License: http://www.fsf.org/copyleft/gpl.html
-%%
-%% $Log: groff_mode.sl,v $
-%% Revision 1.0  2018/02/14 19:51:20  mojo
-%% - Initial version
-%% Revision 1.1  2018/10/27 20:32:37  mojo
-%% - When selecting from completions, pop up window w/completions
-%% 
+
 custom_variable ("Groff_Pdf_Viewer", "zathura");
 custom_variable ("Groff_Cmd", "groff -G -g -e -p -t -Tps -k -K utf-8 -dpaper=a4 -P-pa4");
 
-ifnot (is_defined ("Key_Shift_Tab"))
- () = evalfile ("keydefs");
-ifnot (is_defined ("PCRE_CASELESS"))
- () = evalfile ("pcre");
+require("keydefs");
+require("pcre");
 
 private variable
   Inst_Prefix = "",
-  Version = "1.1",
+  Version = "1.2.1",
   Mode = "groff",
   pdf_file = path_basename_sans_extname (buffer_filename) + ".pdf",
   tmpfile = make_tmp_file (buffer_filename),
   ext = strtrim_beg (path_extname (buffer_filename ()), "."),
   MP = "-" + ext,
   macro_packages = ["-mm","-me","-ms","-mdoc","-mom","-man", "-mandoc", "-www"],
-  % manpage_compile_cmd = "groff -t -e -mdoc -Tps -k -K utf-8 -dpaper=a4 -P-pa4",
   manpage_compile_cmd,
   man_exts = ["mdoc","man","1","2","3","4","5","6","7","8"];
 
@@ -35,7 +25,6 @@ ifnot (NULL == search_path_for_file (getenv ("PATH"), "mandoc", path_get_delimit
   manpage_compile_cmd = "mandoc -T pdf";
 else
   manpage_compile_cmd = "groff -t -e -mdoc -Tps -k -K utf-8 -dpaper=a4 -P-pa4";
-
 
 ifnot (any (macro_packages == MP))
  MP = "";
@@ -145,13 +134,6 @@ private define find_prgs_use_first (prgs)
     return prgs_arr[0];
 }
 
-define t ()
-{
-  % ifnot (NULL == search_path_for_file ("/usr/bin:/usr/local/bin", "mandoc"))
-  ifnot (NULL == search_path_for_file (getenv ("PATH"), "mandoc", path_get_delimiter ()))
-    flush ("fff");
-}
-
 % How is a paragraph interpreted. From jed's nroff mode
 define groff_parsep ()
 {
@@ -166,11 +148,10 @@ private define get_1st_line (file)
   
   fp = fopen (file, "r");
   
-  if (fp == NULL)
-    return "";
+  if (fp == NULL) return "";
   
   () = fgets (&line, fp);
-  
+  () = fclose (fp);
   return line;
 }
 
@@ -276,7 +257,7 @@ define install_groff_font ()
     pfa_file = "",
     devps_dl_str = "",
     devpdf_dl_str = "",
-    textmap = dircat (Inst_Prefix, "current/font/devps/generate/textmap"),
+    textmap = dircat (Inst_Prefix, "current/font/devps/generate/text.map"),
     devps_dir = dircat (groff_fonts_user_dir, "devps"),
     devpdf_dir = dircat (groff_fonts_user_dir, "devpdf"),    devps_dl_file = dircat (devps_dir, "download"),
     devpdf_dl_file = dircat (devpdf_dir, "download"),
@@ -314,8 +295,14 @@ define install_groff_font ()
     if (NULL == search_path_for_file (path, "fontforge"))
       throw OpenError, "fontforge is not installed"$;
     
-    ifnot (1 == file_status (textmap))
-      throw OpenError, "textmap file not found"; 
+		% "textmap" was renamed to "text.map" in 2022. In case an older
+		% groff version is used, also check for the old filename.
+		ifnot (1 == file_status (textmap))
+		{
+			textmap = dircat (Inst_Prefix, "current/font/devps/generate/textmap");
+			ifnot (1 == file_status (textmap))
+				throw OpenError, "text.map file not found";
+		}
     
     if (-1 == mkdir (convert_dir, 0755))
       throw WriteError, "could not create $convert_dir"$;
