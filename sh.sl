@@ -1,5 +1,5 @@
 % sh.sl - a mode for the Jed editor to facilitate the editing of shell scripts.
-% Author: Morten Bo Johansen <listmail at mbjnet dot dk>
+% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: https://www.gnu.org/licenses/gpl-3.0.en.html
 require("pcre");
 require("keydefs");
@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.6.1",
+  Version = "0.6.2",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -28,7 +28,7 @@ private variable
   SH_Indent_Hash = Assoc_Type[String_Type, ""];
 
 % Keywords that trigger some indentation rule
-SH_Indent_Kws = ["if","fi","else","elif","case","esac","do","done","then","for",
+SH_Indent_Kws = ["if","fi","else","elif","esac","done","then","for",
                  "while","until","select","eval"];
 
 % OR'ed expression of $SH_Indent_Kws
@@ -40,8 +40,14 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 % the end of the line, it should always be matched. Also allow for
 % trailing comments in both cases.
 SH_Indent_Kws_Re = strcat("^\\h*\\b($SH_Indent_Kws_Re)\\b\\h*(?:.*?(\\bdo\\b|{)?)\\h*(?:[^$\\{]#.*?)?$"$,
+                          % "do" if not preceded by one of $SH_Indent_Kws
+                          "|\\b(do)\\b\\h*$",
+                          % case
+                          "|\\b(case)\\b.*\\bin\\b.*$",
                           % right parenthesis at begin of line
                           "|^\\h*(\\))\\h*",
+                          % right/left curly braces at end of line
+                          "|({|})\\h*(?:#.*?)?$",
                           % left /parenthesis or function definition, allow for trailing comment
                           "|(\\(|\\(\\))\\h*(?:#.*?)?$");
 
@@ -67,7 +73,7 @@ SH_Indent_Hash["until"] = " @; do\n\ndone";
 SH_Indent_Hash["case"] = " $@ in\n*)\n;;\n*)\n;;\nesac";
 
 % For highlighting
-private variable SH_Kws = [SH_Indent_Kws, ["!","in",";;","time","case","END","EOF"]];
+private variable SH_Kws = [SH_Indent_Kws, ["do","!","in",";;","time","case","END","EOF"]];
 
 % For highlighting. These should cover korn, posix, bourne, bash and zsh?
 private variable SH_Builtins =
@@ -262,8 +268,6 @@ private define sh_is_case_pat()
 }
 
 private variable Sh_Heredoc_Beg_Token = NULL;
-private variable Sh_Before_Heredoc_Col = 0;
-private define sh_get_prev_kw_and_col();
 
 % Return the keyword on the current line
 private define sh_get_indent_kw()
@@ -273,31 +277,20 @@ private define sh_get_indent_kw()
   
   % The regexp to extract 'heredoc' identifier words. It covers all the
   % odd cases in the scripts I have on my computer.
-  variable heredoc_re = "^\\h*(cat|printf)?.*?[^<]<<(?!<)\\h*[-]?[_\'\"\\\\]?([-_A-Za-z!]+)[\'\"]?(?:.*?)?$";
-
+  variable heredoc_re = "^\\h*(cat|printf)?.*?[^<]<<(?!<)\\h*[-]?[\'\"\\\\]?([_A-Za-z!]+)[\'\"]?(?:.*?)?$";
+  
   % case/esac patterns
   if (2 == sh_is_char_unbalanced('(',')')) % ')' not balanced by '('
     if (sh_is_case_pat()) return "case_pat";
 
-  ifnot (NULL == pcre_matches(heredoc_re, sh_line_as_str())[-1])
+  if (sh_re_match_line(heredoc_re))
   {
     Sh_Heredoc_Beg_Token = pcre_matches(heredoc_re, sh_line_as_str())[-1];
-    % save the indentation level from before the 'heredoc' string
-    % began in a global variable so this indentation level can be
-    % picked up again after the end of the 'heredoc' string.
-    (, Sh_Before_Heredoc_Col) = sh_get_prev_kw_and_col();
     return "heredoc_beg_token";
   }
 
   if (sh_re_match_line("^\\h*$Sh_Heredoc_Beg_Token\\h*$"$)) % end of 'heredoc'
     return "heredoc_end_token";
-
-  if (1 == sh_is_char_unbalanced('(', ')'))
-    ifnot (sh_re_match_line(SH_Indent_Kws_Re)) return "(";
-
-  if (1 == sh_is_char_unbalanced('{', '}')) 
-    if (sh_re_match_line("(?<!\\\\{)")) return "{";
-  if (2 == sh_is_char_unbalanced('{', '}')) return "}";
 
   % These are not very common, but occasionally there are lines where
   % curly braces are used to delimit statment blocks and where the
@@ -312,10 +305,18 @@ private define sh_get_indent_kw()
   if (sh_re_match_line("\\bdo\\b.*done\\h*#?")) return NULL;
 
   % if..fi, case..esac one-liners
-  if (sh_re_match_line("^\\b(if|case)\\b.*?\\b(fi|esac)\\b\\h*#?")) return NULL;
+  if (sh_re_match_line("\\bcase\\b.*\\bin\\b.*\\besac\\b")) return NULL;
+  if (sh_re_match_line("\\bif\\b.*\\bfi\\b")) return NULL;
 
   variable kw = pcre_matches(SH_Indent_Kws_Re, sh_line_as_str())[-1];
-  return kw;
+
+  if ((kw == "{") || (kw == "}"))
+    ifnot (sh_is_char_unbalanced('{', '}')) return NULL;
+
+  if ((kw == "(") || (kw == ")"))
+    ifnot (sh_is_char_unbalanced('(', ')')) return NULL;
+
+  return strtrim(kw);
 }
 
 % Return the previous keyword before the current line and its column
@@ -326,7 +327,7 @@ private define sh_get_prev_kw_and_col()
     push_spot();
     do
       ifnot (up(1)) return (NULL, 0);
-    while (NULL == sh_get_indent_kw());
+    while ((NULL == sh_get_indent_kw()) || ("heredoc_end_token" == sh_get_indent_kw()));
     sh_get_indent_kw(); % previous kw on stack
     bol_skip_white();
     _get_point(); % previous kw col on stack
@@ -373,7 +374,9 @@ private define sh_find_col_matching_kw(goto)
         if (any(kw == ["elif","else"]))
           if (if_n > fi_n) break;
         if (kw == "fi")
+        {
           if (if_n == fi_n) break;
+        }
       }
       while (up(1));
       break;
@@ -445,6 +448,8 @@ private define sh_find_col_matching_kw(goto)
   ifnot (goto) pop_spot();
 }
 
+variable Indent = -1;
+
 % The rules-based indentation of lines. The order in which these rules
 % appear matters to some extent.
 private define sh_indent_line()
@@ -454,58 +459,96 @@ private define sh_indent_line()
   if (sh_is_line_continued()) % continued lines ...\
   {
     col = sh_find_col_matching_kw(0);
-    return sh_indent_spaces(col + SH_Indent);
+    Indent = col + SH_Indent;
+    return sh_indent_spaces(Indent);
   }
 
   sh_this_kw = sh_get_indent_kw();
+
+  % If a line where keyword detection returns NULL follows another
+  % similar line, stop backtracking and indent to column of previous line.
+  if (Indent >= 0)
+  {
+    if (sh_this_kw == NULL)
+    {
+      if (up(1))
+      {
+        if (NULL == sh_get_indent_kw())
+        {
+          go_down_1();
+          return sh_indent_spaces(Indent);
+        }
+      }
+      go_down_1();
+    }
+  }
+  
+  % bactracks to find previous keyword that is not NULL and its column
   (sh_prev_kw, sh_prev_kw_col) = sh_get_prev_kw_and_col();
 
   % Align a 'do' keyword on a line by itself to its loop keywords
   if ((sh_this_kw == "do") && (any(sh_prev_kw == ["for","while","until","select"])))
-    return sh_indent_spaces(sh_prev_kw_col);
-
+  {
+    Indent = sh_prev_kw_col;
+    return sh_indent_spaces(Indent);
+  }
+  
   % indent a case pattern relative to its case keyword by one level
   if (sh_this_kw == "case_pat")
   {
     col = sh_find_col_matching_kw(0);
-    return sh_indent_spaces(col + SH_Indent);
+    Indent = col + SH_Indent;
+    return sh_indent_spaces(Indent);
   }
 
   % Align these keywords to their matching keywords, fi..if, esac..case, etc
   if (any(sh_this_kw == ["fi","else","elif","done","esac","}",")","}{"]))
   {
     col = sh_find_col_matching_kw(0);
-    return sh_indent_spaces(col);
+    Indent = col;
+    return sh_indent_spaces(Indent);
   }
 
   % Align the identifier word for the end of a 'heredoc' string flush left
   if (sh_this_kw == "heredoc_end_token")
-    return sh_indent_spaces(0);
-
-  % ... then resume indentation from before 'heredoc' string
-  if (sh_prev_kw == "heredoc_end_token")
-    return sh_indent_spaces(Sh_Before_Heredoc_Col);
-
-  % 'then' on a line by itself aligned to 'if' or 'elif'
+  {
+    Indent = 0;
+    return sh_indent_spaces(Indent);
+  }
+  
+	% 'then' on a line by itself aligned to 'if' or 'elif'
   if ((sh_this_kw == "then") && any(sh_prev_kw == ["if","elif"]))
-    return sh_indent_spaces(sh_prev_kw_col);
+  {
+    Indent = sh_prev_kw_col;
+    return sh_indent_spaces(Indent);
+  }
 
-  % Indent lines following these keywords.
-  if (any(sh_prev_kw == ["if","for","then","do","case","else","elif","{","(", "case_pat","heredoc_beg_token","}{"]))
-    return sh_indent_spaces(sh_prev_kw_col + SH_Indent);
-
+  % Indent lines following these keywords
+  if (any(sh_prev_kw == ["if","for","while","then","do","case","else","elif","{","(", "case_pat","}{"]))
+  {
+    Indent = sh_prev_kw_col + SH_Indent;
+    return sh_indent_spaces(Indent);
+  }
+  
   % function definitions aligned flush left unless after those keywords
   if (sh_this_kw == "()" && not any(sh_prev_kw == ["if","for","then","do","case","else","elif","}","}{","{","(", "case_pat"]))
-    return sh_indent_spaces(0);
-
+  {
+    Indent = 0;
+    return sh_indent_spaces(Indent);
+  }
+  
   % Align lines under these keywords
   if (any(sh_prev_kw == ["esac","done","fi","}","eval",")","()"]))
-    return sh_indent_spaces(sh_prev_kw_col);
-
+  {
+    Indent = sh_prev_kw_col;
+    return sh_indent_spaces(Indent);
+  }
+  
   if (sh_this_kw == NULL)
-    return sh_indent_spaces(sh_prev_kw_col);
-
-  return sh_indent_spaces(0);
+  {
+    Indent = sh_prev_kw_col;
+    return sh_indent_spaces(Indent);
+  }
 }
 
 % Indent line or a marked region. Usually with <tab>
@@ -759,12 +802,12 @@ define sh_electric_right_brace()
 % after curly brace
 define sh_electric_left_brace()
 {
-	if ("()" == sh_get_indent_kw()) % function definition
-	{
-		insert("\n{");
-		_sh_newline_and_indent();
-	}
-	else insert("{");
+  if (blooking_at("()")) % function definition
+  {
+    insert("\n{");
+    _sh_newline_and_indent();
+  }
+  else insert("{");
 }
 
 ifnot (keymap_p (Mode)) make_keymap(Mode);
