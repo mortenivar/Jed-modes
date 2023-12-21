@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.6.2",
+  Version = "0.6.3",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -40,14 +40,16 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 % the end of the line, it should always be matched. Also allow for
 % trailing comments in both cases.
 SH_Indent_Kws_Re = strcat("^\\h*\\b($SH_Indent_Kws_Re)\\b\\h*(?:.*?(\\bdo\\b|{)?)\\h*(?:[^$\\{]#.*?)?$"$,
-                          % "do" if not preceded by one of $SH_Indent_Kws
-                          "|\\b(do)\\b\\h*$",
+                          % "do" if not preceded by one of $SH_Indent_Kws followed by "eval" or "test"
+                          "|\\b(do)\\b\\h*(?:\\beval\\b|\\btest\\b|#)",
+                          % "do" alone possibly followed by a comment
+                          "|^\\h*\\bdo\\b\\h*(?:#.*?)?$",
                           % case
-                          "|\\b(case)\\b.*\\bin\\b.*$",
+                          "|\\b(case)\\b(?:.*?\\bin\\b.*?)?\\)?$",
                           % right parenthesis at begin of line
                           "|^\\h*(\\))\\h*",
                           % right/left curly braces at end of line
-                          "|({|})\\h*(?:#.*?)?$",
+                          "|({|})'?\\h*(?:#.*?)?$",
                           % left /parenthesis or function definition, allow for trailing comment
                           "|(\\(|\\(\\))\\h*(?:#.*?)?$");
 
@@ -229,6 +231,8 @@ private define sh_is_char_unbalanced(ch1, ch2)
   variable ch1_n = count_char_occurrences(sh_line_as_str(), ch1);
   variable ch2_n = count_char_occurrences(sh_line_as_str(), ch2);
 
+  % if (ch1_n == 0 && ch2_n == 0) return 0;
+
   if (ch1_n > 0)
     if ((ch1_n - ch2_n) mod 2 || ch2_n == 0) return 1; % ch1
   if (ch2_n > 0)
@@ -260,7 +264,7 @@ private define sh_is_case_pat()
 
   if (up(1))
   {
-    while (sh_re_match_line("^\\h*#") || sh_re_match_line("^\\h*$")) go_up_1();
+    while ((sh_re_match_line("^\\h*#")) || (sh_re_match_line("^\\h*$"))) go_up_1();
     ((sh_re_match_line(";;")) || (sh_re_match_line("case")));
   }
 
@@ -284,10 +288,7 @@ private define sh_get_indent_kw()
     if (sh_is_case_pat()) return "case_pat";
 
   if (sh_re_match_line(heredoc_re))
-  {
     Sh_Heredoc_Beg_Token = pcre_matches(heredoc_re, sh_line_as_str())[-1];
-    return "heredoc_beg_token";
-  }
 
   if (sh_re_match_line("^\\h*$Sh_Heredoc_Beg_Token\\h*$"$)) % end of 'heredoc'
     return "heredoc_end_token";
@@ -319,7 +320,8 @@ private define sh_get_indent_kw()
   return strtrim(kw);
 }
 
-% Return the previous keyword before the current line and its column
+% Return the previous keyword, that is not one of those to be skipped,
+% before the current line and its column
 private define sh_get_prev_kw_and_col()
 {
   try
@@ -327,7 +329,10 @@ private define sh_get_prev_kw_and_col()
     push_spot();
     do
       ifnot (up(1)) return (NULL, 0);
-    while ((NULL == sh_get_indent_kw()) || ("heredoc_end_token" == sh_get_indent_kw()));
+    while ((sh_get_indent_kw == NULL) ||
+           (sh_get_indent_kw == "heredoc_end_token") ||
+           (sh_get_indent_kw == "eval")); % skip these
+             
     sh_get_indent_kw(); % previous kw on stack
     bol_skip_white();
     _get_point(); % previous kw col on stack
@@ -516,22 +521,24 @@ private define sh_indent_line()
     return sh_indent_spaces(Indent);
   }
   
-	% 'then' on a line by itself aligned to 'if' or 'elif'
+  % 'then' on a line by itself aligned to 'if' or 'elif'
   if ((sh_this_kw == "then") && any(sh_prev_kw == ["if","elif"]))
   {
     Indent = sh_prev_kw_col;
     return sh_indent_spaces(Indent);
   }
 
+  variable indent_after_kws = ["if","for","while","then","do","case","else","elif","{","(", "case_pat","}{"];
+
   % Indent lines following these keywords
-  if (any(sh_prev_kw == ["if","for","while","then","do","case","else","elif","{","(", "case_pat","}{"]))
+  if (any(sh_prev_kw == indent_after_kws))
   {
     Indent = sh_prev_kw_col + SH_Indent;
     return sh_indent_spaces(Indent);
   }
   
   % function definitions aligned flush left unless after those keywords
-  if (sh_this_kw == "()" && not any(sh_prev_kw == ["if","for","then","do","case","else","elif","}","}{","{","(", "case_pat"]))
+  if (sh_this_kw == "()" && not any(sh_prev_kw == indent_after_kws))
   {
     Indent = 0;
     return sh_indent_spaces(Indent);
@@ -743,6 +750,7 @@ define sh_show_on_shellcheck_wiki()
 % is specified the shebang directive. The output from the execution
 % is shown in another window if more than one line. If the output is
 % only one line, it is diplayed in the message area.
+% NOTE: It only works for non-interactive scripts.
 define sh_exec_region_or_buffer()
 {
   variable lines, cmd, str, output, fp, shell;
