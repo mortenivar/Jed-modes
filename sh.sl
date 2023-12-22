@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "warning");
 
 private variable
   Mode = "SH",
-  Version = "0.6.3",
+  Version = "0.6.4",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -28,8 +28,8 @@ private variable
   SH_Indent_Hash = Assoc_Type[String_Type, ""];
 
 % Keywords that trigger some indentation rule
-SH_Indent_Kws = ["if","fi","else","elif","esac","done","then","for",
-                 "while","until","select","eval"];
+SH_Indent_Kws = ["fi","else","esac","done","then","for","do",
+                 "while","until","select","eval","if","elif"];
 
 % OR'ed expression of $SH_Indent_Kws
 SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
@@ -38,13 +38,12 @@ SH_Indent_Kws_Re = strjoin(SH_Indent_Kws, "|");
 % such as parentheses and braces. If 'do' is on the same line as loop
 % keyword, 'do' should always be matched. If a left parenthesis is at
 % the end of the line, it should always be matched. Also allow for
-% trailing comments in both cases.
-SH_Indent_Kws_Re = strcat("^\\h*\\b($SH_Indent_Kws_Re)\\b\\h*(?:.*?(\\bdo\\b|{)?)\\h*(?:[^$\\{]#.*?)?$"$,
-                          % "do" if not preceded by one of $SH_Indent_Kws followed by "eval" or "test"
-                          "|\\b(do)\\b\\h*(?:\\beval\\b|\\btest\\b|#)",
-                          % "do" alone possibly followed by a comment
-                          "|^\\h*\\bdo\\b\\h*(?:#.*?)?$",
-                          % case
+% trailing comments in both cases. if "do", "if", "elif" are followed by
+% an "eval" or "test", they may also be matched when not at begin of
+% line.
+SH_Indent_Kws_Re = strcat("(?:^.*?\\b(do|if|elif)\\b\\h*{?\\h*(?:\\beval\\b|\\btest\\b|#))",
+                          "|^\\h*\\b($SH_Indent_Kws_Re)\\b\\h*(?:.*?(\\bdo\\b|{)?)\\h*(?:[^$\\{]#.*?)?$"$,
+                          % "case", also when not at begin of line
                           "|\\b(case)\\b(?:.*?\\bin\\b.*?)?\\)?$",
                           % right parenthesis at begin of line
                           "|^\\h*(\\))\\h*",
@@ -460,7 +459,6 @@ variable Indent = -1;
 private define sh_indent_line()
 {
   variable sh_this_kw = NULL, sh_prev_kw = NULL, sh_prev_kw_col = 0, col = 0;
-
   if (sh_is_line_continued()) % continued lines ...\
   {
     col = sh_find_col_matching_kw(0);
