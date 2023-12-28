@@ -11,9 +11,12 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.1
+%% Version: 0.8.2
 %%
 %}}}
+
+require("keydefs");
+
 %{{{ Custom variables
 % A default for the spelling dictionary to use
 custom_variable ("Aspell_Dict", "");
@@ -46,7 +49,7 @@ custom_variable ("Aspell_Use_Tabcompletion", 0);
 % typically residing in /usr/lib/aspell-<version>/<lang>.dat
 % For e.g. the Danish language, this option is set to "true" and
 % therefore words that are strung together from two or more
-% individuallly correctly spelled words are accepted as correctly
+% individually correctly spelled words are accepted as correctly
 % spelled. For most languages, it won't have any effect.
 custom_variable ("Aspell_Accept_Compound_Words", 0);
 
@@ -89,10 +92,9 @@ private variable
 private define _aspell_get_word (delete)
 {
   variable wchars = "\a"R + Aspell_Extended_Wordchars;
-  variable punct = "!?.,:;'`\")]>";
 
   push_spot ();
-  bskip_chars (punct); bskip_chars (wchars); push_mark (); skip_chars (wchars);
+  bskip_chars (wchars); push_mark (); skip_chars (wchars);
 
   if (delete)
     bufsubstr_delete ();
@@ -115,7 +117,7 @@ private define get_keysequence ()
 private define buf_as_words_array ()
 {
   push_spot_bob (); push_mark_eob ();
-  strtrim (strtok (bufsubstr (), "^\\w"));
+  strtrim (strtok (bufsubstr (), "^\\a"));
   pop_spot ();
 }
 
@@ -222,7 +224,7 @@ variable Checked_Words = Assoc_Type[String_Type, ""];
 
 % Spell check the word behind the cursor with aspell. Space or return
 % keys trigger the function.
-define aspell_check_word ()
+private define aspell_check_word ()
 {
   variable word_prev = Word;
 
@@ -247,7 +249,7 @@ private define before_key_hook (fun)
 {
   % Checking of word is triggered by <return> or <space> keys, or if
   % typing right before or inside a word.
-  if ((is_substr (" \r", LASTKEY) || (re_looking_at("[A-Za-zÀ-ÖØ-öø-ÿĀ-ſƀ-ɏɐ]"))))
+  if (is_substr (" \r", LASTKEY))
     aspell_check_word ();
 }
 
@@ -260,7 +262,7 @@ private define aspell_setup_syntax ()
   set_color ("keyword", Aspell_Typo_Color, bg);
   Aspell_Typo_Table = "Aspell";
   create_syntax_table (Aspell_Typo_Table);
-  define_syntax ("-a-zA-Z" + Aspell_Extended_Wordchars, 'w', Aspell_Typo_Table);
+  define_syntax ("a-zA-Z" + Aspell_Extended_Wordchars, 'w', Aspell_Typo_Table);
   use_syntax_table (Aspell_Typo_Table);
 }
 
@@ -362,11 +364,13 @@ private define aspell_popup_menu ()
   $1 = "Global.S&ystem.&Aspell";
   menu_append_item ($1, "&Add Word to Personal Wordlist", "add_word_to_personal_wordlist");
   menu_append_item ($1, "Spellcheck &Buffer", "aspell_buffer");
+  menu_append_item ($1, "Spellcheck R&egion", "aspell_flyspell_region");
   menu_append_item ($1, "Select Aspell &Dictionary", "aspell_select_dictionary");
   menu_append_item ($1, "&Change Aspell's Suggestion Mode", "aspell_set_suggestion_mode");
   menu_append_item ($1, "&Suggest Correction", "aspell_suggest_correction");
   menu_append_item ($1, "&Toggle Spell Checking on the Fly", "aspell_toggle_flyspell");
   menu_append_item ($1, "&Remove Misspelled Highligting", "aspell_remove_word_highligtning()");
+  menu_append_item ($1, "&Go to Next Misspelled", "aspell_goto_next_misspelled()");
 }
 append_to_hook ("load_popup_hooks", &aspell_popup_menu);
 %}}}
@@ -503,8 +507,6 @@ define aspell_toggle_flyspell ()
   {
     kill_process (Aspell_Pid);
     Aspell_Pid = NULL;
-    create_syntax_table (Aspell_Typo_Table); % empties the syntax table
-    call ("redraw");
     remove_from_hook ("_jed_before_key_hooks", &before_key_hook);
   }
   else
@@ -513,6 +515,45 @@ define aspell_toggle_flyspell ()
   flush ("spell checking on the fly set to $Aspell_Flyspell"$);
   aspell_set_status_line ();
 }
+
+% Spell check a marked region.
+define aspell_flyspell_region()
+{
+  variable flyspell_state = Aspell_Flyspell;
+  variable words_n, i = 0;
+  
+  if (flyspell_state == 0)
+    aspell_toggle_flyspell();
+
+  ifnot (markp())
+    return flush("no region defined");
+
+  % empty the cached database of formerly checked words
+  Checked_Words = Assoc_Type[String_Type, ""];
+  exchange_point_and_mark();
+  check_region(1); % push spot
+  narrow_to_region();
+  words_n = length(buf_as_words_array());
+  bob();
+
+  do
+  {
+    skip_word();
+    aspell_check_word();
+    flush (sprintf ("spell checking ... (%d%%)", (i*100)/words_n));
+    i++;
+  }
+  while (not (eobp()));
+
+  widen_region();
+  pop_spot();
+  flush("done");
+  
+  if (Aspell_Flyspell != flyspell_state)
+    aspell_toggle_flyspell();
+}
+
+variable Misspelled_Words = String_Type[0];
 
 % Spellcheck the whole buffer. This is rather efficient: First it
 % produces a list of misspelled words with the "aspell list" command,
@@ -535,12 +576,12 @@ public define aspell_buffer ()
   out = strjoin (buf_as_words_array (), "\n");
   () = write_string_to_file (out, tmpfile);
   fp = popen (cmd, "r");
-  misspelled_words = strtrim (fgetslines (fp));
+  Misspelled_Words = strtrim (fgetslines (fp));
   () = fclose (fp);
 
   _for i (2, 48, 1) % 48 is the keyword length limit.
   {
-    misspelled_words_n = misspelled_words[where (strbytelen (misspelled_words) == i)];
+    misspelled_words_n = Misspelled_Words[where (strbytelen (Misspelled_Words) == i)];
     misspelled_words_n = misspelled_words_n[array_sort (misspelled_words_n)];
     misspelled_words_n = strjoin (misspelled_words_n, "");
 
@@ -552,12 +593,28 @@ public define aspell_buffer ()
   call ("redraw");
 }
 
+% Go to the next misspelled word. This only works after having spell
+% checked the whole buffer with aspell_buffer(). It doesn't work with
+% aspell_flyspell_region()
+define aspell_goto_next_misspelled()
+{
+  ifnot (length(Misspelled_Words))
+    return flush("you must spell check the buffer first");
+
+  while (not (eobp()))
+  {
+    skip_word();
+    if (any(aspell_get_word == Misspelled_Words)) return;
+  }
+}
+
 %}}}
 %{{{ Keymap
 $1 = "aspell";
 
 % The keymap for the mode
 ifnot (keymap_p ($1)) make_keymap($1);
+definekey("aspell_goto_next_misspelled", Key_Shift_Tab, $1);
 definekey_reserved("add_word_to_personal_wordlist", "a", $1);
 definekey_reserved("aspell_buffer", "b", $1);
 definekey_reserved("aspell_select_dictionary", "d", $1);
@@ -565,6 +622,7 @@ definekey_reserved("aspell_suggest_correction", "s", $1);
 definekey_reserved("aspell_toggle_flyspell", "t", $1);
 definekey_reserved("aspell_set_suggestion_mode", "S", $1);
 definekey_reserved("aspell_remove_word_highligtning()", "R", $1);
+definekey_reserved("aspell_flyspell_region()", "r", $1);
 %}}}
 %{{{ Minor mode initialization
 define init_aspell ()
