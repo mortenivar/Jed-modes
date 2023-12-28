@@ -6,6 +6,26 @@ highlighted in red by default. It borrows some ideas from flyspell.sl
 from jedmodes, but adds some other functions and is also a little less
 complicated to set up, in part because it supports Aspell only.
 
+                                 Facilities
+
+- Spell check the whole buffer, highlighting misspelled words.
+
+- Spell check a region, highlighting misspelled words.
+
+- Spell check ("flyspelling") as you type along ("on the fly")
+
+- Change Aspell dictionary in a running session
+
+- Menu with suggestions for corrections of a misspelled word
+
+- Add words to Aspell's personal word list
+
+- Possibility to complete words with the tabcomplete extension
+
+- Auto correction of typos
+
+- Go to next misspelled word
+
                                  Installation:
 
 Place aspell.sl in a directory where jed will find it. Add the following
@@ -148,7 +168,7 @@ All of these ten variables may be redefined in a mode hook.
 
                                    Usage:
 
-There are seven user functions that are tied to keys:
+There are Nine user functions that are tied to keys:
 
   - add_word_to_personal_wordlist: ctrl-c a
 
@@ -178,6 +198,16 @@ There are seven user functions that are tied to keys:
   - aspell_remove_word_highligtning: <ctrl>-c R
 
     (remove color highlighting from a word)
+
+  - aspell_flyspell_region: <ctrl>-c r
+
+    (spell check a marked region) 
+
+  - aspell_goto_next_misspelled: <Shift>-<Tab>
+
+    (go to the next misspelled word. It only works after having
+     spell checked the entire buffer. It doesn't work with spell
+     checking a region)
 
 <ctrl>-c is the reserved key prefix in this case. You may have it
 set to something else.
