@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.0
+%% Version: 0.8.1
 %%
 %}}}
 %{{{ Custom variables
@@ -335,12 +335,14 @@ private define aspell_select_from_mini (items_arr)
   else
   {
     ifnot (isdigit(ch))
-      return clear_message ();
+    {
+      clear_message ();
+      return "";
+    }
 
     i = integer (ch);
     return items_arr[i];
   }
-  return "";
 }
 
 % Load the tabcompletion extension with a word list that corresponds
@@ -462,16 +464,18 @@ define aspell_suggest_correction ()
     () = aspell_delete_word ();
     insert (sugg);
     clear_message ();
-  }
 
-  variable entry = strcat(word, ":", sugg);
+    variable entry = strcat(word, ":", sugg);
 
-  % Adds the pair of words, one a typo, and the other, the correction to
-  % the replacement word list.
-  if (get_y_or_n(sprintf("Add the entry \"%s\" to %s", entry, path_basename(Aspell_Replacement_Wordlist))))
-  {
-    () = system("echo $entry >> $Aspell_Replacement_Wordlist"$);
+    % Adds the pair of words, one a typo, and the other, the correction to
+    % the replacement word list.
+    if (get_y_or_n(sprintf("Add the entry \"%s\" to %s", entry, path_basename(Aspell_Replacement_Wordlist))))
+    {
+      () = system("echo $entry >> $Aspell_Replacement_Wordlist"$);
+      flush("$entry added to $Aspell_Replacement_Wordlist"$);
+    }
   }
+  else clear_message();
 }
 
 % Initialize the spell process with another aspell dictionary
