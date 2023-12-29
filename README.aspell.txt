@@ -168,7 +168,7 @@ All of these ten variables may be redefined in a mode hook.
 
                                    Usage:
 
-There are Nine user functions that are tied to keys:
+There are ten user functions that are tied to keys:
 
   - add_word_to_personal_wordlist: ctrl-c a
 
@@ -203,18 +203,33 @@ There are Nine user functions that are tied to keys:
 
     (spell check a marked region) 
 
-  - aspell_goto_next_misspelled: <Shift>-<Tab>
+  - aspell_goto_misspelled: <shift>-<down>
 
-    (go to the next misspelled word. It only works after having
-     spell checked the entire buffer. It doesn't work with spell
-     checking a region)
+  - aspell_goto_misspelled: <shift>-<up>
 
-<ctrl>-c is the reserved key prefix in this case. You may have it
-set to something else.
+    (go to the next or previous misspelled word. It only works after having
+     spell checked the entire buffer. It doesn't work with spell checking a
+     region)
 
 These functions are also available from the menu:
 
   F10 -> System -> Aspell
+
+<ctrl>-c is the reserved key prefix in this case. You may have it
+set to something else.
+
+All of the key bindings above may be redefined in a mode hook if they
+are inconvenient, e.g.:
+
+  define text_mode_hook ()
+  {
+    unsetkey_reserved ("n");
+    setkey_reserved ("aspell_goto_misspelled\(1\)", "n");
+    init_aspell ();
+  }
+
+would redefine the keybinding for going to the next misspelled word
+to <ctrl>-c n
 
 The aspell_buffer functions may also be used without loading the entire
 minor mode. In your ~/.jedrc insert
@@ -223,18 +238,6 @@ minor mode. In your ~/.jedrc insert
 
 and then bind the aspell_buffer function to some key in your global key map.
 
-All of the key bindings above may be redefined in a mode hook if they
-are inconvenient, e.g.:
-
-  define text_mode_hook ()
-  {
-    init_aspell ();
-    local_unsetkey_reserved ("i");
-    local_setkey_reserved ("select_aspell_dictionary", "i");
-  }
-
-would redefine the keybinding for selecting a spelling dictionary to
-ctrl-c i
 
 If the mode is activated, the status line will show, e.g.
 
