@@ -11,12 +11,12 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.2
+%% Version: 0.8.3
 %%
 %}}}
-
+%{{{ Requires
 require("keydefs");
-
+%}}}
 %{{{ Custom variables
 % A default for the spelling dictionary to use
 custom_variable ("Aspell_Dict", "");
@@ -247,8 +247,7 @@ private define aspell_check_word ()
 % The hook that triggers the spell checking of a word
 private define before_key_hook (fun)
 {
-  % Checking of word is triggered by <return> or <space> keys, or if
-  % typing right before or inside a word.
+  % Checking of word is triggered by <return> or <space> keys
   if (is_substr (" \r", LASTKEY))
     aspell_check_word ();
 }
@@ -337,10 +336,7 @@ private define aspell_select_from_mini (items_arr)
   else
   {
     ifnot (isdigit(ch))
-    {
-      clear_message ();
       return "";
-    }
 
     i = integer (ch);
     return items_arr[i];
@@ -370,7 +366,8 @@ private define aspell_popup_menu ()
   menu_append_item ($1, "&Suggest Correction", "aspell_suggest_correction");
   menu_append_item ($1, "&Toggle Spell Checking on the Fly", "aspell_toggle_flyspell");
   menu_append_item ($1, "&Remove Misspelled Highligting", "aspell_remove_word_highligtning()");
-  menu_append_item ($1, "&Go to Next Misspelled", "aspell_goto_next_misspelled()");
+  menu_append_item ($1, "&Go to Next Misspelled", "aspell_goto_misspelled(1)");
+  menu_append_item ($1, "&Go to Previous Misspelled", "aspell_goto_misspelled(-1)");
 }
 append_to_hook ("load_popup_hooks", &aspell_popup_menu);
 %}}}
@@ -562,6 +559,8 @@ variable Misspelled_Words = String_Type[0];
 % the entire minor mode.
 public define aspell_buffer ()
 {
+  if (eobp() && bobp()) return;
+
   variable
     tmpfile = make_tmp_file ("aspell_buffer"),
     cmd = "aspell list $Aspell_Mode $Aspell_Run_Together_Switch -d $Aspell_Dict <$tmpfile"$,
@@ -578,6 +577,9 @@ public define aspell_buffer ()
   fp = popen (cmd, "r");
   Misspelled_Words = strtrim (fgetslines (fp));
   () = fclose (fp);
+
+  ifnot (length(Misspelled_Words))
+    return flush("no spelling errors found");
 
   _for i (2, 48, 1) % 48 is the keyword length limit.
   {
@@ -596,15 +598,27 @@ public define aspell_buffer ()
 % Go to the next misspelled word. This only works after having spell
 % checked the whole buffer with aspell_buffer(). It doesn't work with
 % aspell_flyspell_region()
-define aspell_goto_next_misspelled()
+define aspell_goto_misspelled(dir)
 {
   ifnot (length(Misspelled_Words))
     return flush("you must spell check the buffer first");
 
-  while (not (eobp()))
+  if (dir < 0)
   {
-    skip_word();
-    if (any(aspell_get_word == Misspelled_Words)) return;
+    while (not (bobp()))
+    {
+      bskip_word();
+      if (any(aspell_get_word == Misspelled_Words)) return;
+    }
+  }
+  else
+  {
+    while (not (eobp()))
+    {
+      skip_word();
+      skip_chars("^A-Za-zÀ-ÖØ-öø-ÿĀ-ſƀ-ɏɐ");
+      if (any(aspell_get_word == Misspelled_Words)) return;
+    }
   }
 }
 
@@ -614,7 +628,8 @@ $1 = "aspell";
 
 % The keymap for the mode
 ifnot (keymap_p ($1)) make_keymap($1);
-definekey("aspell_goto_next_misspelled", Key_Shift_Tab, $1);
+definekey("aspell_goto_misspelled(1)", Key_Shift_Down, $1);
+definekey("aspell_goto_misspelled(-1)", Key_Shift_Up, $1);
 definekey_reserved("add_word_to_personal_wordlist", "a", $1);
 definekey_reserved("aspell_buffer", "b", $1);
 definekey_reserved("aspell_select_dictionary", "d", $1);
