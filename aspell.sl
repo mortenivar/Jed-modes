@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.3
+%% Version: 0.8.4
 %%
 %}}}
 %{{{ Requires
@@ -22,7 +22,7 @@ require("keydefs");
 custom_variable ("Aspell_Dict", "");
 
 % What characters not normally part of a word, e.g. underscore,
-% apostrohpe, might be included.
+% apostrophe, might be included.
 custom_variable ("Aspell_Extended_Wordchars", "");
 
 % Select a spelling dictionary upon startup
@@ -35,7 +35,7 @@ custom_variable ("Aspell_Typo_Color", "red");
 % 0 = disable flyspelling
 custom_variable ("Aspell_Flyspell", 1);
 
-% Use replacement wordlist or not. 0 = disable
+% Use replacement word list or not. 0 = disable
 custom_variable ("Aspell_Use_Replacement_Wordlist", 1);
 
 % Use tab completion (with tabcomplete.sl)
@@ -53,7 +53,7 @@ custom_variable ("Aspell_Use_Tabcompletion", 0);
 % spelled. For most languages, it won't have any effect.
 custom_variable ("Aspell_Accept_Compound_Words", 0);
 
-% The algorithm for Aspell's suggestions for correcting a missepelled
+% The algorithm for Aspell's suggestions for correcting a misspelled
 % word. Possible values are: "ultra", "fast", "normal", "slow", "bad-spellers"
 % Take a look at http://aspell.net/test/cur to see each mode performs in
 % a test. But results will probably vary with the language, anyway. So
@@ -63,6 +63,11 @@ custom_variable ("Aspell_Suggestion_Mode", "fast");
 % Whether or not to spell check the buffer immediately after loading it
 % 0 = disable
 custom_variable ("Aspell_Spellcheck_Buffer_On_Startup", 1);
+
+% Show the menu with Aspell's suggestions for correcting a misspelled
+% word when going to the next or previous misspelled word.
+% 0 = disable
+custom_variable ("Aspell_Show_Suggestions_Goto_Misspelled", 0);
 
 %}}}
 %{{{ Autoloads
@@ -121,7 +126,7 @@ private define buf_as_words_array ()
   pop_spot ();
 }
 
-private define aspell_get_word ()
+define aspell_get_word ()
 {
   return _aspell_get_word (0);
 }
@@ -147,7 +152,7 @@ private define get_aspell_dicts ()
 }
 
 % Find the default spelling dictionary to use from some locale
-% enviroment variables. For every language of installed aspell
+% environment variables. For every language of installed aspell
 % dictionaries, there is always one whose name consists only of the
 % two-letter ISO-639-1 language code.
 private define aspell_set_dictionary_from_env ()
@@ -159,7 +164,7 @@ private define aspell_set_dictionary_from_env ()
   locale_values = locale_values[where (strlen (locale_values) >= 2)]; % filter out "C"
 
   ifnot (length(locale_values))
-    throw RunTimeError, "could not set an aspell dictionary from the enviroment";
+    throw RunTimeError, "could not set an aspell dictionary from the environment";
 
   foreach (locale_values)
   {
@@ -365,14 +370,14 @@ private define aspell_popup_menu ()
   menu_append_item ($1, "&Change Aspell's Suggestion Mode", "aspell_set_suggestion_mode");
   menu_append_item ($1, "&Suggest Correction", "aspell_suggest_correction");
   menu_append_item ($1, "&Toggle Spell Checking on the Fly", "aspell_toggle_flyspell");
-  menu_append_item ($1, "&Remove Misspelled Highligting", "aspell_remove_word_highligtning()");
+  menu_append_item ($1, "&Remove Misspelled Highlighting", "aspell_remove_word_highligtning()");
   menu_append_item ($1, "&Go to Next Misspelled", "aspell_goto_misspelled(1)");
   menu_append_item ($1, "&Go to Previous Misspelled", "aspell_goto_misspelled(-1)");
 }
 append_to_hook ("load_popup_hooks", &aspell_popup_menu);
 %}}}
 %{{{ User functions
-%% A Function to autocorrect oops-like typos, like typing "teh" instead of "the".
+%% A Function to auto correct oops-like typos, like typing "teh" instead of "the".
 private define aspell_auto_replace_word ();
 private define aspell_auto_replace_word (fun)
 {
@@ -393,7 +398,7 @@ private define aspell_auto_replace_word (fun)
   repl_word = strtrim(strchop(repl_word, ':', 0))[1];
   () = aspell_delete_word ();
   insert (repl_word);
-  flush ("\"$word\" autocorrected to \"$repl_word\""$);
+  flush ("\"$word\" auto corrected to \"$repl_word\""$);
 }
 
 if (Aspell_Use_Replacement_Wordlist)
@@ -419,7 +424,7 @@ define aspell_remove_word_highligtning()
   call("redraw");
 }
 
-% Set the mode for Aspell's suggetions for correcting a missepelled word
+% Set the mode for Aspell's suggestions for correcting a misspelled word
 define aspell_set_suggestion_mode()
 {
   ungetkey('\t');
@@ -484,7 +489,8 @@ define aspell_select_dictionary ()
 {
   variable aspell_dicts = get_aspell_dicts ();
 
-  Aspell_Dict = read_with_completion (aspell_dicts, "[Aspell] Select language (<TAB> lists):", Aspell_Dict, "", 's');
+  ungetkey('\t');
+  Aspell_Dict = read_with_completion (aspell_dicts, "[Aspell] Select language:", Aspell_Dict, "", 's');
   aspell_verify_dict ();
   aspell_start_flyspell_process ();
   Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$Aspell_Dict"$);
@@ -603,6 +609,9 @@ define aspell_goto_misspelled(dir)
   ifnot (length(Misspelled_Words))
     return flush("you must spell check the buffer first");
 
+  if (Aspell_Show_Suggestions_Goto_Misspelled)
+    aspell_suggest_correction();
+
   if (dir < 0)
   {
     while (not (bobp()))
@@ -616,7 +625,7 @@ define aspell_goto_misspelled(dir)
     while (not (eobp()))
     {
       skip_word();
-      skip_chars("^A-Za-zÀ-ÖØ-öø-ÿĀ-ſƀ-ɏɐ");
+      skip_non_word_chars();
       if (any(aspell_get_word == Misspelled_Words)) return;
     }
   }
@@ -642,6 +651,10 @@ definekey_reserved("aspell_flyspell_region()", "r", $1);
 %{{{ Minor mode initialization
 define init_aspell ()
 {
+  if (NULL == search_path_for_file (getenv ("PATH"), "aspell"))
+    return flush ("aspell is not installed or not in $PATH, spell checking disabled.");
+
+  define_word("\a"R + Aspell_Extended_Wordchars);
   aspell_set_dictionary_from_env ();
   aspell_verify_dict ();
   aspell_set_filter_mode ();
@@ -649,9 +662,6 @@ define init_aspell ()
   aspell_setup_syntax ();
   aspell_set_status_line ();
   add_completion ("aspell_buffer");
-
-  if (NULL == search_path_for_file (getenv ("PATH"), "aspell"))
-    return flush ("aspell is not installed or not in $PATH, spell checking disabled.");
 
   if (Aspell_Accept_Compound_Words)
     Aspell_Run_Together_Switch = "-C";
