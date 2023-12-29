@@ -56,6 +56,7 @@ with their default values
   variable Aspell_Accept_Compound_Words = 0;
   variable Aspell_Suggestion_Mode = "fast";
   variable Aspell_Spellcheck_Buffer_On_Startup = 1;
+  variable Aspell_Show_Suggestions_Goto_Misspelled = 0;
 
 First, set this block of variables globally in your ~/.jedrc with the
 default values of your choice and then possibly adapt them individually in
@@ -163,6 +164,11 @@ outside the mode hook.
 - The tenth variable, "Aspell_Spellcheck_Buffer_On_Startup", determines
   if spell checking will be performed on the buffer immediately after it
   is loaded.
+
+- The eleventh variable, "Aspell_Show_Suggestions_Goto_Misspelled", if
+  enabled, will show the menu for Aspell's  suggestions for correcting a
+  misspelled word whenever you go to the next or previous misspelled word.<
+
 
 All of these ten variables may be redefined in a mode hook.
 
