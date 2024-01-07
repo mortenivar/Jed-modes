@@ -4,7 +4,7 @@ aspell.sl is an extension minor mode to the jed editor to spell check the
 current buffer as you type along ("on the fly").  Misspelled words will be
 highlighted in red by default. It borrows some ideas from flyspell.sl
 from jedmodes, but adds some other functions and is also a little less
-complicated to set up, in part because it supports Aspell only.
+complicated to set up, in part because it supports Aspell only. 
 
                                  Facilities
 
@@ -16,6 +16,8 @@ complicated to set up, in part because it supports Aspell only.
 
 - Change Aspell dictionary in a running session
 
+- Spell check with buffer-specific dictionaries in the same Jed session
+
 - Menu with suggestions for corrections of a misspelled word
 
 - Add words to Aspell's personal word list
@@ -24,7 +26,7 @@ complicated to set up, in part because it supports Aspell only.
 
 - Auto correction of typos
 
-- Go to next misspelled word
+- Go to next or previous misspelled word
 
                                  Installation:
 
@@ -297,10 +299,6 @@ function in the mode hook, first.
 
   - The mode supports Aspell only - as the name suggests!
 
-  - You may only spell check in one language at a time, so having e.g. two
-    buffers open in the same jed session and wanting to spell check in one
-    separate language for each, won't work.
-
   - Highlighting of misspelled words is limited to words of a length of at
     most 48 bytes. Not sure if that is much of a problem, but in languages
     whose alphabets consist mostly or entirely of multibyte characters, some
@@ -310,9 +308,8 @@ function in the mode hook, first.
     is not working very well in Jed versions prior to "pre0.99.20-143", so
     in particular, if you use a language with such characters, you should
     consider upgrading, if necessary.
-
-  - Occasionally, a word which is correctly spelled may be highlighted as
-    misspelled.
+    
+  - Jumping between misspellings does not work with region spell checking  
 
 Send bug reports or suggestions to:
 
