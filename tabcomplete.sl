@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.4 2023/11/17
+% Version 0.8.5 2024/01/08
 %
 % Author : Morten Bo Johansen <mbj@mbjnet.dk>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -91,6 +91,28 @@ private define tabcomplete_fit_window()
   otherwindow; bob();
 }
 
+% contributed by Guenter Milde, fixed by cpbotha@debian.org
+private define indent_region_or_line ()
+{
+  ifnot (is_visible_mark)
+    indent_line;
+  else
+  {
+    check_region (1);                  % make sure the mark comes first
+    variable End_Line = what_line;
+    exchange_point_and_mark();         % now point is at start of region
+    
+    do
+    {
+      indent_line;
+    }
+    while (what_line <= End_Line and down_1);
+    
+    pop_spot();
+    pop_mark_0();
+  }
+}
+
 % What mode are we in
 private define detect_mode ()
 {
@@ -105,8 +127,8 @@ private define get_word ()
   if (blocal_var_exists("Wordchars") && blocal_var_exists("Extended_Wordchars"))
     wchars = get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars");
 
-	push_spot ();
-	bskip_chars (wchars); push_mark (); skip_chars (wchars);
+  push_spot ();
+  bskip_chars (wchars); push_mark (); skip_chars (wchars);
   strtrim (bufsubstr ());
   pop_spot ();
 }
@@ -241,7 +263,7 @@ private define align_parens ()
 %% an array.
 private define make_completions_hash (Completions_File)
 {
-	% In slang_mode, if no completions file, then generate one
+  % In slang_mode, if no completions file, then generate one
   if ((0 == file_status (Completions_File)) && ("slang" == detect_mode ()))
   {
     variable funs = _apropos ("Global", ".", 15);
@@ -256,7 +278,7 @@ private define make_completions_hash (Completions_File)
     include_file,
     i = 0, j;
 
-	if ((F == NULL) || length (F)) % purge a possibly existing hash
+  if ((F == NULL) || length (F)) % purge a possibly existing hash
     F = Assoc_Type[Array_Type, String_Type[0]];
 
   flush ("hashing $Completions_File ..."$);
@@ -266,7 +288,7 @@ private define make_completions_hash (Completions_File)
     throw OpenError, "could not open completions file, $Completions_File"$;
 
   include_files = lines [where (0 == strncmp ("#INC", lines, 4), &i)]; % include other files
-  lines = lines[i];		       % don't include #INC lines
+  lines = lines[i];           % don't include #INC lines
 
   variable lines_list = {lines};
   foreach include_file (include_files)
@@ -275,11 +297,11 @@ private define make_completions_hash (Completions_File)
     include_file = strtrim (include_file, "\"");
     lines = read_file_lines (include_file);
     if (lines == NULL)
-	  {
+    {
       flush ("Could not open \"$include_file\""$);
       sleep (2);
       continue;
-	  }
+    }
 
     i = where (strncmp (lines, "#", 1));
     if (length (i) != length (lines)) lines = lines [i];
@@ -306,13 +328,13 @@ private define get_locale ()
   variable locale = "";
   variable locale_values = array_map (String_Type, &getenv, ["LC_MESSAGES","LC_ALL","LANG"]);
 
-	locale_values = locale_values[where (strlen (locale_values) >= 2)]; % filter out "C"
+  locale_values = locale_values[where (strlen (locale_values) >= 2)]; % filter out "C"
 
-	if (length (locale_values))
-	{
-		foreach (locale_values)
-		{
-			variable locale_value = ();
+  if (length (locale_values))
+  {
+    foreach (locale_values)
+    {
+      variable locale_value = ();
 
       try
       {
@@ -384,6 +406,9 @@ define tabcomplete ()
   if (blooking_at(")"))
     return align_parens();
 
+  if (is_visible_mark())
+    return indent_region_or_line();
+
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   if (1 == re_line_match ("^$", 1) ||
@@ -407,38 +432,38 @@ define tabcomplete ()
   completions = completions[array_sort (strlen (completions))];
 
   % This pops up a buffer with a menu of all completions
-	if (Use_Completion_Menu)
-	{
-		variable completed_words, I, menu, buf = whatbuf, mbuf = "***Completions***";
+  if (Use_Completion_Menu)
+  {
+    variable completed_words, I, menu, buf = whatbuf, mbuf = "***Completions***";
 
-		stub = strtrim (get_word ());
-		completed_words = array_map (String_Type, &strcat, stub, completions);
-		I = array_map (String_Type, &string, [0:length (completed_words)-1]);
-		menu = array_map (String_Type, &strcat, I, "|", completed_words);
-		pop2buf (mbuf);
-		insert (strjoin (menu, ",\n"));
-		bob ();
-		call ("format_paragraph");
-		set_buffer_modified_flag (0);
+    stub = strtrim (get_word ());
+    completed_words = array_map (String_Type, &strcat, stub, completions);
+    I = array_map (String_Type, &string, [0:length (completed_words)-1]);
+    menu = array_map (String_Type, &strcat, I, "|", completed_words);
+    pop2buf (mbuf);
+    insert (strjoin (menu, ",\n"));
+    bob ();
+    call ("format_paragraph");
+    set_buffer_modified_flag (0);
     tabcomplete_fit_window();
-		update_sans_update_hook (1);
-		most_mode ();
-		keystr = get_keystr (7);
-		sw2buf (buf);
+    update_sans_update_hook (1);
+    most_mode ();
+    keystr = get_keystr (7);
+    sw2buf (buf);
 
-		if (any (keystr == I))
-		{
-			bdelete_word ();
-			insert (completed_words[integer (keystr)]);
-		}
+    if (any (keystr == I))
+    {
+      bdelete_word ();
+      insert (completed_words[integer (keystr)]);
+    }
 
-		delbuf (mbuf);
-		sw2buf (buf);
-		return onewindow ();
-	}
+    delbuf (mbuf);
+    sw2buf (buf);
+    return onewindow ();
+  }
 
   % completion at editing point
-	if (length (completions))
+  if (length (completions))
   {
     buffer_keystring (Completion_Key); % ungetkey for strings
 
@@ -452,10 +477,10 @@ define tabcomplete ()
           break;
         }
         else
-				{
-					flush ("no more completions");
-					i = 0; % restart cycle
-				}
+        {
+          flush ("no more completions");
+          i = 0; % restart cycle
+        }
       }
 
       if (markp ())
@@ -514,7 +539,7 @@ define tabcomplete ()
   }
   else
   {
-    if (keystr == "\r" or keystr == "	")
+    if (keystr == "\r" or keystr == "  ")
       insert (completion);
     else
       insert (completion + keystr);
@@ -718,23 +743,23 @@ private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
 {
-	variable locale = get_locale ();
+  variable locale = get_locale ();
 
   ifnot (_NARGS)
   {
-		% the default completions file
-		Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", detect_mode));
+    % the default completions file
+    Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", detect_mode));
 
-		ifnot (1 == file_status (Completions_File))
-		{
-			if (strlen (locale))
-			{
-			  Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", locale));
+    ifnot (1 == file_status (Completions_File))
+    {
+      if (strlen (locale))
+      {
+        Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", locale));
 
-				ifnot (1 == file_status (Completions_File))
-			    Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", locale[[0:1]]));
-			}
-		}
+        ifnot (1 == file_status (Completions_File))
+          Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", locale[[0:1]]));
+      }
+    }
   }
   else
     Completions_File = ();
