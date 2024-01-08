@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.5
+%% Version: 0.8.6
 %%
 %}}}
 %{{{ Requires
@@ -81,6 +81,7 @@ if (strlen (expand_jedlib_file ("tabcomplete.sl")))
 %{{{ Prototypes
 define aspell_select_dictionary ();
 define add_word_to_personal_wordlist ();
+public define aspell_buffer();
 %}}}
 %{{{ Private variables
 private variable
@@ -268,6 +269,8 @@ private define aspell_highlight_misspelled (Aspell_Pid, str)
   Word = "";
 }
 
+private variable Prev_Word = "";
+
 % Spell check the word behind the cursor with aspell. Space or return
 % keys trigger the function.
 private define aspell_check_word ()
@@ -275,15 +278,17 @@ private define aspell_check_word ()
   variable word_prev = Word;
   variable checked_words = get_blocal_var("checked_words");
   variable misspelled_words = get_blocal_var("misspelled_words");
-  
-  Word = strtrim(aspell_get_word ());
 
+  Word = strtrim(aspell_get_word ());
+  
   ifnot (strlen (Word)) return;
 
-  if (any(Word == misspelled_words)) return;
-
   if ((looking_at(" ") || eolp()))
-    if (Word == word_prev) flush ("double word");
+    if (Word == Prev_Word) flush ("double word");
+
+  Prev_Word = Word;
+
+  if (any(Word == misspelled_words)) return;
 
   % don't check already checked words
   if (assoc_key_exists (checked_words, Word))
