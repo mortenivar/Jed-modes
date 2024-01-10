@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.6
+%% Version: 0.8.7
 %%
 %}}}
 %{{{ Requires
@@ -85,7 +85,7 @@ public define aspell_buffer();
 %}}}
 %{{{ Private variables
 private variable
- Aspell_Pid = NULL,
+ Aspell_Pid = -1,
  Word = "",
  Aspell_Typo_Table = "",
  Aspell_Mode = "",
@@ -275,7 +275,6 @@ private variable Prev_Word = "";
 % keys trigger the function.
 private define aspell_check_word ()
 {
-  variable word_prev = Word;
   variable checked_words = get_blocal_var("checked_words");
   variable misspelled_words = get_blocal_var("misspelled_words");
 
@@ -319,7 +318,7 @@ private define aspell_start_flyspell_process ()
 
   setbuf (spellbuf);
 
-  ifnot (Aspell_Pid == NULL)
+  ifnot (Aspell_Pid == -1)
     kill_process (Aspell_Pid);
 
   if (strlen (Aspell_Mode))
@@ -417,6 +416,7 @@ private define aspell_auto_replace_word ();
 private define aspell_auto_replace_word (fun)
 {
   ifnot (is_substr (" \r", LASTKEY)) return;
+  ifnot (blocal_var_exists("aspell_dict")) return;
 
   variable repl_word = "", word = "";
   variable dict = get_blocal_var("aspell_dict");
@@ -546,7 +546,6 @@ define aspell_select_dictionary ()
   Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$new_dict"$);
   aspell_set_status_line();
   aspell_buffer ();
-
 }
 
 % Toggle flyspelling on or off
@@ -557,7 +556,7 @@ define aspell_toggle_flyspell ()
   ifnot (Aspell_Flyspell)
   {
     kill_process (Aspell_Pid);
-    Aspell_Pid = NULL;
+    Aspell_Pid = -1;
     remove_from_hook ("_jed_before_key_hooks", &before_key_hook);
   }
   else
@@ -626,7 +625,7 @@ public define aspell_buffer ()
     fp,
     i = 0;
 
-  flush("spell checking buffer ...");
+  flush(sprintf ("spell checking %s ...", whatbuf()));
   create_syntax_table(typo_table); % emties the existing one
   aspell_setup_syntax(typo_table);
   out = strjoin (buf_as_words_array (), "\n");
@@ -666,23 +665,25 @@ define aspell_goto_misspelled(dir)
     aspell_suggest_correction();
 
   variable misspelled_words = get_blocal_var("misspelled_words");
-
+  
   if (dir < 0)
   {
     while (not (bobp()))
     {
       bskip_word();
+      skip_non_word_chars();
       if (any(aspell_get_word == misspelled_words)) return;
     }
   }
   else
   {
-    while (not (eobp()))
+    do
     {
       skip_word();
       skip_non_word_chars();
       if (any(aspell_get_word == misspelled_words)) return;
     }
+    while (not (eobp()));
   }
 }
 
