@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.7
+%% Version: 0.8.8
 %%
 %}}}
 %{{{ Requires
@@ -276,18 +276,14 @@ private variable Prev_Word = "";
 private define aspell_check_word ()
 {
   variable checked_words = get_blocal_var("checked_words");
-  variable misspelled_words = get_blocal_var("misspelled_words");
 
   Word = strtrim(aspell_get_word ());
   
   ifnot (strlen (Word)) return;
 
-  if ((looking_at(" ") || eolp()))
-    if (Word == Prev_Word) flush ("double word");
+  if (Word == Prev_Word) flush ("double word");
 
   Prev_Word = Word;
-
-  if (any(Word == misspelled_words)) return;
 
   % don't check already checked words
   if (assoc_key_exists (checked_words, Word))
@@ -745,7 +741,7 @@ define init_aspell ()
 
   if (Aspell_Flyspell)
     aspell_start_flyspell_process ();
-  
+
   if ((1 == Aspell_Ask_Dictionary) || (0 == strlen (get_blocal_var("aspell_dict"))))
   {
     Aspell_Ask_Dictionary = 0;
