@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.6 2024/01/28
+% Version 0.8.5 2024/01/08
 %
 % Author : Morten Bo Johansen <mbj@mbjnet.dk>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -62,7 +62,6 @@ custom_variable ("Sep_Fun_Par_With_Space", 0);
 % may not have installed, so use evalfile () instead.
 ifnot (is_defined ("Key_F1"))
  () = evalfile ("keydefs");
-
 %}}}
 %{{{ Variables
 private variable
@@ -143,6 +142,25 @@ define get_keystr (delay)
     s += char (getkey ());
 
   return s;
+}
+
+% Indent a marked region according to the mode rules
+private define indent_region ()
+{
+  variable region_beg, region_end;
+
+  check_region (1);
+  region_end = what_line ();
+  exchange_point_and_mark ();
+  region_beg = what_line ();
+  pop_mark_0;
+  goto_line (region_beg);
+
+  do
+    call ("indent_line");
+  while (down (1) && what_line <= region_end);
+
+  pop_spot ();
 }
 
 % Use a string delimiter instead of a character delimiter to chop up a
@@ -360,7 +378,7 @@ private define insert_and_expand_construct (kw, syntax)
       insert (strcat (kw, syntax));
   }
 
-  indent_region_or_line ();
+  indent_region ();
 
   % position the cursor at the "@@" place holder"
   if (is_substr (syntax, "@@"))
@@ -371,63 +389,6 @@ private define insert_and_expand_construct (kw, syntax)
 }
 %}}}
 %{{{ User functions
-
-define cmp_fun(a, b)
-{
-  return strbytelen(a) > strbytelen(b);
-}
-
-% If Use_Completion_Menu = 1, format word candidates for completion in
-% nicely aligned columns. over at most 20 lines. If there are words
-% with multibyte characters, the alignment is alas not 100% correct.
-private define format_and_insert_completion_menu(words_arr)
-{
-  variable i = 0, remainder = 0, cols = 1, words_n = length(words_arr);
-  variable col_offset, longest_word, pad_n, rows_n = 20;
-  
-  % sort words by size in ascending order.
-  words_arr = words_arr[array_sort(words_arr, &cmp_fun)]; 
-  longest_word = words_arr[-1];
-  % the space offset between columns
-  col_offset = strbytelen(longest_word) + 2;
-  
-  % number of completion candidates > 20
-  if (words_n > rows_n)
-  {
-    % the remaining number of words after division between total
-    % number of words and number of rows
-    remainder = words_n mod rows_n;
-
-    % a positive number of remaining words was returned
-    if (remainder > 0)
-    {
-      % number of paddings needed to equal number of rows
-      pad_n = rows_n - remainder;
-
-      % pad words array with empty strings to make its length suitable
-      % for reshaping.
-      loop (pad_n)
-        words_arr = [words_arr, ""];
-    }
-    
-    % how many columns do we need?
-    cols = length(words_arr)/rows_n;
-
-    % create a 2D array with the computed number of columns and 20 rows
-    reshape (words_arr, [rows_n, cols]);
-
-    % insert words in whole rows with columns aligned under one
-    % another at the designated column offset.
-    _for i (0, rows_n-1, 1)
-    {
-      array_map(Void_Type, &vinsert, "%-${col_offset}s"$, words_arr[i, *]);
-      insert("\n");
-    }
-  }
-  else % number of completion candidates < 20
-    insert(strjoin(words_arr, "\n"));
-}
-
 %% Complete the word behind the editing point from words in a file
 define tabcomplete ()
 {
@@ -454,7 +415,7 @@ define tabcomplete ()
       0 == strlen (stub) ||
       markp() ||
       re_looking_at (sprintf ("[%s]", get_word_chars ())))
-    return indent_region_or_line();
+    return call("indent_line");
 
   % get all words where stub forms the beginning of the words
   completion_words = Words [where (0 == strnbytecmp (stub, Words, strbytelen (stub)))];
@@ -468,22 +429,21 @@ define tabcomplete ()
     completion_words = completion_words [wherenot (completion_words == stub)];
 
   completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
-  completions = completions[array_sort(completions, &cmp_fun)];
+  completions = completions[array_sort (strlen (completions))];
 
-  ifnot (length(completions)) return flush("no comletions");
-
-  % This pops up a buffer with a menu of all completion candidates
+  % This pops up a buffer with a menu of all completions
   if (Use_Completion_Menu)
   {
-    variable completed_words, I, entries, buf = whatbuf, mbuf = "***Completions***";
+    variable completed_words, I, menu, buf = whatbuf, mbuf = "***Completions***";
 
     stub = strtrim (get_word ());
     completed_words = array_map (String_Type, &strcat, stub, completions);
     I = array_map (String_Type, &string, [0:length (completed_words)-1]);
-    entries = array_map (String_Type, &strcat, I, "|", completed_words);
+    menu = array_map (String_Type, &strcat, I, "|", completed_words);
     pop2buf (mbuf);
-    format_and_insert_completion_menu(entries);
+    insert (strjoin (menu, ",\n"));
     bob ();
+    call ("format_paragraph");
     set_buffer_modified_flag (0);
     tabcomplete_fit_window();
     update_sans_update_hook (1);
@@ -493,16 +453,8 @@ define tabcomplete ()
 
     if (any (keystr == I))
     {
-      Completed_Word = completed_words[integer (keystr)];
       bdelete_word ();
-
-      if (length (F[Completed_Word]) > 0)
-      {
-        syntax = F[Completed_Word][0];
-        insert_and_expand_construct (Completed_Word, syntax);
-      }
-      else
-        insert(Completed_Word);
+      insert (completed_words[integer (keystr)]);
     }
 
     delbuf (mbuf);
