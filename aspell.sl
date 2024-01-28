@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.8
+%% Version: 0.8.9
 %%
 %}}}
 %{{{ Requires
@@ -335,7 +335,8 @@ private define aspell_start_flyspell_process ()
 
 define aspell_switch_buffer_hook(oldbuf)
 {
-  ifnot (blocal_var_exists("aspell_dict")) return;
+  ifnot (blocal_var_exists("aspell_dict"))
+    return remove_from_hook("_jed_before_key_hooks", &before_key_hook);
   
   Aspell_Typo_Table = whatbuf();
   aspell_setup_syntax(Aspell_Typo_Table);
