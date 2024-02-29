@@ -19,14 +19,25 @@ The location of the unicode-character-database is hardcoded as
 "/usr/share/unicode/UnicodeData.txt". If it is in some other place, then edit
 the value of the variable, "Unicode_Data_File" in glyph.sl
 
-Usage: Invoke with Alt-x glyph - or from the menu
-F10 -> Edit -> Insert Glyph
+Usage: Invoke with
+
+    <alt>-x glyph
+
+or from the menu
+
+    F10 -> Edit -> Insert Glyph
 
 From the prompt enter some search string to get a listing of
 matching glyphs with their accompanying descriptions. Place the
 editing point flush on the chosen glyph and hit <enter> to have it
 inserted into the buffer.
 
-Morten Bo Johansen, listmail at mbj dot dk
+You may also see the description of the character at the editing point by
+invoking
+
+   <alt>-x glyph_show_description
+
+
+Morten Bo Johansen, mortenbo at hotmail dot com
 Licence: GPL, version 2 or later.
 
