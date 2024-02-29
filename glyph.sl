@@ -32,6 +32,9 @@ require("pcre");
 private variable Unicode_Data_File = "/usr/share/unicode/UnicodeData.txt";
 private variable OldBuf;
 
+ifnot (1 == file_status(Unicode_Data_File))
+  throw ReadError, "$Unicode_Data_File not found"$;
+
 define insert_char_other_buffer()
 {
   variable char = what_char();
@@ -49,9 +52,6 @@ append_to_hook ("load_popup_hooks", &glyph_load_popup_hook);
 
 public define glyph()
 {
-  ifnot (1 == file_status(Unicode_Data_File))
-    throw OpenError, "$Unicode_Data_File not found"$;
-
   variable name, pat, glyph_hex, match_lines, match_line, i = 0;
   variable re = read_mini("Search for glyph:", "", "");
 
@@ -89,4 +89,45 @@ public define glyph()
   local_setkey("insert_char_other_buffer", "\r");
 }
 
+% Show the description from the unicode character database for the
+% character at the editing point.
+public define glyph_show_description()
+{
+  variable pad_zeros, descr, hex_char_code;
+
+  hex_char_code = pcre_matches("0x(.*?)/", count_chars());
+
+  if (hex_char_code == NULL) return;
+
+  hex_char_code = hex_char_code[1];
+
+  % The unicode character database pads hexidecimal character codes at
+  % four characters or less with leading zeros up to four characters.
+  % Jed's count_chars() function does not, so align the latter to the
+  % former.
+  pad_zeros = 4 - strlen(hex_char_code);
+
+  if (pad_zeros > 0)
+  {
+    loop (pad_zeros)
+      hex_char_code = "0$hex_char_code"$;
+  }
+
+  hex_char_code = "^$hex_char_code;"$;
+
+  ifnot (search_file (Unicode_Data_File, hex_char_code, 1))
+    return flush("nothing matched");
+
+  descr = __pop_list(1);
+  descr = descr[0];
+
+  if (is_substr(descr, "<control>"))
+    descr = strchop(descr, ';', 0)[10];
+  else
+    descr = strchop(descr, ';', 0)[1];
+
+  flush(descr);
+}
+
 add_completion("glyph");
+add_completion("glyph_show_description");
