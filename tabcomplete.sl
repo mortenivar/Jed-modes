@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.6 2024/01/28
+% Version 0.8.7 2024/03/02
 %
 % Author : Morten Bo Johansen <mbj@mbjnet.dk>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -41,7 +41,7 @@ custom_variable ("Completion_Key", "\t");
 custom_variable ("Wordchars", "\a"R);
 
 % What other characters may constitute a word?
-custom_variable ("Extended_Wordchars", "._#<>");
+custom_variable ("Extended_Wordchars", "");
 
 % Insert completion word itself or not
 custom_variable ("Insert_Completion_Word", 1);
@@ -102,13 +102,13 @@ private define indent_region_or_line ()
     check_region (1);                  % make sure the mark comes first
     variable End_Line = what_line;
     exchange_point_and_mark();         % now point is at start of region
-    
+
     do
     {
       indent_line;
     }
     while (what_line <= End_Line and down_1);
-    
+
     pop_spot();
     pop_mark_0();
   }
@@ -445,15 +445,12 @@ define tabcomplete ()
   if (blooking_at(")"))
     return align_parens();
 
-  if (is_visible_mark())
-    return indent_region_or_line();
-
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
-  if (1 == re_line_match ("^$", 1) ||
-      0 == strlen (stub) ||
-      markp() ||
-      re_looking_at (sprintf ("[%s]", get_word_chars ())))
+  if (1 == re_line_match ("^$", 1) || % don't complete on empty line
+      0 == strlen (stub) || % don't complete if no word characters behind editing point
+      markp() || % don't complete if a region is marked
+      isalnum(what_char)) % don't complete if editing point is on an alphanumeric character
     return indent_region_or_line();
 
   % get all words where stub forms the beginning of the words
@@ -470,9 +467,10 @@ define tabcomplete ()
   completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
   completions = completions[array_sort(completions, &cmp_fun)];
 
-  ifnot (length(completions)) return flush("no comletions");
+  ifnot (length(completions)) return flush("no completions");
 
-  % This pops up a buffer with a menu of all completion candidates
+  % This pops up a buffer with a menu of all completion candidates if
+  % the custom variable, Use_Completion_Menu = 1
   if (Use_Completion_Menu)
   {
     variable completed_words, I, entries, buf = whatbuf, mbuf = "***Completions***";
@@ -536,15 +534,6 @@ define tabcomplete ()
       if (markp ())
         del_region ();
 
-      % a little hack to prevent the byte strings emitted from hitting
-      % some of the arrow keys from being inserted into the buffer
-      if (any(keystr == ["OA","OB","OD"]))
-        keystr = "";
-
-      % right arrow key will now just insert the completion
-      if (keystr == "OC")
-        keystr = " ";
-
       switch (keystr)
       { case Completion_Key: % cycle through the possible completions
         {
@@ -556,7 +545,7 @@ define tabcomplete ()
         }
       }
       { case Key_BS: return; } % backspace breaks cycle and returns to stub
-      { case " " || case "\r": break; } % space or enter inserts completion and break cycle
+      { case " " || case "\r" || case "\eOC": break; } % space or enter inserts completion and breaks cycle
       { return insert (completion + keystr);} % all other keys stops and inserts completion + character pressed
     } % forever
   }
@@ -587,7 +576,7 @@ define tabcomplete ()
   }
   else
   {
-    if (keystr == "\r" or keystr == "  ")
+    if (any(keystr == ["\r","\eOC",Completion_Key]))
       insert (completion);
     else
       insert (completion + keystr);
