@@ -178,8 +178,6 @@ private define aspell_set_dictionary_from_env ()
     else
       Aspell_Dict = locale_value[[0:1]]; % e.g. "en"
   }
-
-  Aspell_Replacement_Wordlist = expand_filename("~/.aspell_repl.$Aspell_Dict"$);
 }
 
 % Return the word list used for completion with tabcomplete
@@ -690,7 +688,9 @@ define aspell_goto_misspelled(dir)
 private variable Mode = "aspell";
 
 % The keymap for the mode
-ifnot (keymap_p (Mode)) make_keymap(Mode);
+ifnot (keymap_p (Mode))
+  copy_keymap (Mode, what_keymap());
+
 definekey("aspell_goto_misspelled(1)", Key_Shift_Down, Mode);
 definekey("aspell_goto_misspelled(-1)", Key_Shift_Up, Mode);
 definekey_reserved("add_word_to_personal_wordlist", "a", Mode);
@@ -710,6 +710,7 @@ define init_aspell ()
     return flush ("aspell is not installed or not in $PATH, spell checking disabled.");
 
   aspell_set_dictionary_from_env ();
+  Aspell_Replacement_Wordlist = expand_filename("~/.aspell_repl.$Aspell_Dict"$);
 
   ifnot (blocal_var_exists("aspell_dict"))
     define_blocal_var("aspell_dict", Aspell_Dict);
