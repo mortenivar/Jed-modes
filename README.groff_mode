@@ -1,77 +1,221 @@
-                                 Description:
-                                 
-groff-mode for the Jed editor is an extension editing mode that facilitates
-the editing of groff/nroff/troff etc. files. It has a colour highlighting
-scheme, but it also has a few other features, such as the toggling of inline
-markup styles, previewing of the file in a pdf-viewer as well as being able
-to convert and install OpenType or TrueType fonts in a chosen user directory
-for use with groff.
+                                 DESCRIPTION:
 
-                                Installation:
-                                
+
+groff_mode for the Jed editor is an extension editing mode that facilitates
+the editing of groff/nroff/troff files. It has a color highlighting scheme,
+but it also has a few other features, such as the toggling of inline markup
+styles, previewing of the file in a pdf-viewer as well as being able to
+convert and install OpenType or TrueType fonts in a chosen user directory
+for use with groff. The mode will auto detect what options to groff that are
+needed to convert the current document for a chosen output device.
+
+
+                                  DOWNLOAD:
+
+
+It is easiest just to check out my repository on Gihub, it is only a few
+kilobytes:
+
+  git clone https://github.com/mortenivar/Jed-modes.git
+
+
+                       INSTALLATION and CUSTOMIZATION:
+
+
 Copy groff_mode.sl to directory in your jed library path, e.g.
 /usr/share/jed/lib. If you only have write access to your own home
 directory, then do something like this:
 
- cd
- mkdir -p .jed/lib
- cp groff_mode.sl .jed/lib
 
-In both cases, add the following lines to your ˝/.jedrc:
+  cd
+  mkdir -p .jed/lib
+  cp groff_mode.sl .jed/lib
 
-  %#v+
-  %% groff-mode customization
-  set_jed_library_path (get_jed_library_path () + "," + dircat (getenv ("HOME"), ".jed/lib"));
-  autoload ("groff_mode", "groff_mode");
-  add_mode_for_extension ("groff", "mm");
-  add_mode_for_extension ("groff", "ms");
-  add_mode_for_extension ("groff", "me");
-  add_mode_for_extension ("groff", "mom");
-  add_mode_for_extension ("groff", "mdoc");
-  add_mode_for_extension ("groff", "man");
-  Groff_Pdf_Viewer = "zathura";
-  Groff_Cmd = "groff -Tps -k -K utf-8 -dpaper=a4 -P-pa4";
-  %#v-
-  
-The two last lines specify your pdf-viewer and some parameters to groff.
-If you like them as they are, you don't need to include them, as they are
-already the default. Otherwise, you can change them to your liking.
 
-                                    Usage:
-                                    
-F10 -> Mode will show some menu items of available commands.
+and add the following line near the top of your ˝/.jedrc:
 
-For the mode to be autoloaded, it relies on the extension of the file.
-Therefore, if you edit groff files using e.g. the "mm" macro set, then it is
-a good idea to call the file "myfile.mm", then the groff mode will be loaded
-automatically and the -mm parameter passed to groff when compiling the
-document. You can also load the mode with alt-x and then groff_mode.
 
-F9 renders the current buffer in a pdf-viewer. You may keep the rendered
-document open in the pdf-viewer and F9 will update it with no need to save
-the file in between.
+  set_jed_library_path(get_jed_library_path () + "," + dircat(getenv("HOME"), ".jed/lib"));
 
-"ctrl-c I" will convert and install a TrueType or OpenType font for use with
-groff. You must set the environment variable GROFF_FONT_PATH in your shell
-configuration file. It should only be a single directory. For the bash
-shell, write these two lines to the file, ~/.bashrc:
 
- GROFF_FONT_PATH=$HOME/.groff-fonts
- export GROFF_FONT_PATH
+This would include the ".jed/lib" directory under your home directory as
+part of the editor's search path for library files.
 
-Then your fonts will be installed to the hidden directory ~/.groff-fonts
-under your home directory. The directory in the GROFF_FONT_PATH variable is
-just complementary to the hard-coded font paths in groff so it doesn't
-override anything.
+Also add the following lines to your ~/.jedrc:
 
-To have an environment variable propagated to the X environment for use with
-xjed, you might enter the two lines above into the file, ~/.xprofile.
 
-    Usage With the "tabcomplete" extension from jedmodes.sourceforge.net:
- 
- (todo)
+   autoload("groff_mode", "groff_mode");
+   variable groff_exts = "1 2 3 4 5 6 7 8 man mm ms me mdoc mom nroff troff groff tr trf";
+   array_map(Void_Type, &add_mode_for_extension, "groff", strtok(groff_exts));
+
+
+This enables autoloading of the mode for a number of different file
+extensions.
+
+Another way to load the mode is <alt>-x -> groff_mode
+
+You may also add the following block of variables to your ~/.jedrc:
+
+
+   variable Groff_Output_Device = pdf;
+   variable Groff_Pdf_Viewer = "zathura";
+   variable Groff_Paper_Format = "A4";
+   variable Groff_Encoding = "utf-8";
+   variable Groff_Cmd = "";
+   variable Groff_Use_Tabcompletion = 0;
+
+
+These settings are the default settings and you may then change them there
+to your liking. The variable, "Groff_Cmd", may be used to set a default
+groff command line for converting the document in case you have some special
+needs or the auto detection for some reason fails. It will then override the
+auto detection mechanism. The variable, "Groff_Use_Tabcompletion", is
+explained later.
+
+The variables, "Groff_Output_Device", "Groff_Paper_Format", "Groff_Encoding"
+and "Groff_Cmd", may also be changed on the fly from within the editor.
+
+
+                                   USAGE:
+
+
+   (e.g. "<ctrl>-cf" means, type <ctrl>-c, release both keys and type 'f')
+
+
+- <F10> ->  Mode, will show some menu items of available commands.
+
+- <F9>      renders the current buffer in a pdf-viewer, a pager program such
+            as less(1) or a browser such as lynx(1). You may keep the
+            rendered document open in the pdf-viewer and <F9> will update
+            the contents in the pdf-viewer with no need to save the file in
+            between or to restart the pdf-viewer. Updating happens
+            completely transparently. The status line will be dynamically
+            updated with the detected groff options needed to convert the
+            document
+
+- <ctrl>-cf will convert and install a TrueType or OpenType font for use
+            with groff. It uses the environment variable, $GROFF_FONT_PATH,
+            as the installation target. If you have haven't set this
+            variable in your environment, it will be set by the mode to
+            $XDG_DATA_HOME/groff/site-font. $XDG_DATA_HOME usually defaults
+            to $HOME/.local/share. If $XDG_DATA_HOME is not set in your
+            environment, the mode will set $GROFF_FONT_PATH to
+            $HOME/.local/share/groff/site-font.
+
+- <ctrl>-cF will batch convert and install, either all TrueType or OpenType
+            fonts in a directory or a subset of those that match an
+            expression. During installation, no user interaction is
+            required; the style suffixes, R, B, I, BI, are parsed from the
+            font file names and added automatically to the groff font
+            description file name.
+
+- <ctrl>-cn will pop up a window with a list of the installed groff font
+            description files from which you may insert a chosen font name
+            into the buffer. The names may be completed with the <tab> key.
+
+- <ctrl>-ci will apply some text attribute to the current word or a block of
+            marked text. The available attributes are: font face, bold,
+            italic, font size, color and quote. Calling the function on an
+            already marked up word will remove the attribute. If color is
+            chosen, a pop up selection window with all the defined groff
+            colors is shown.
+
+- <ctrl>-cO will show a one-line menu in the message area whence you may
+            change the settings for output device, input encoding, paper
+            format and toggle between portrait and landscape paper
+            orientation.
+
+- <ctrl>-cC will show the full groff command line, the mode has detected as
+            needed to convert the current buffer, in the message area. This
+            is similar to what the grog(1) program does.
+
+- <ctrl>-ce will give you a input line in the mini buffer where you may enter
+            or edit the groff command to convert the document. This sets the
+            value of the variable, "Groff_Cmd", which will override the built-in
+            detection mechanism. If you want to revert to auto detection, then
+            just clear the line.
+
+- <ctrl>-cg will display a one-line menu in the message area with items for
+            drawing various figures with pic(1).
+
+- <ctrl>-cd will display a one-line menu in the message area with items for
+            drawing various figures with troff requests.
+
+
+                              Using a mode hook:
+
+When the mode is loaded, a mode hook is run. You may exploit that by
+inserting the e.g. following into your ~/.jedrc:
+
+
+in your ~/.jedrc, insert:
+
+  variable Groff_Use_Tabcompletion;
+  variable Newl_Delim;
+  variable Extended_Wordchars;
+
+  define groff_mode_hook ()
+  {
+    Extended_Wordchars = "-_.\\\\[\]*";
+    Newl_Delim = "\t";
+    Groff_Use_Tabcompletion = 1;
+  }
+
+
+                     Using the tabcomplete.sl extension:
+
+
+If you installed the tabcomplete.sl extension from the git repository, you
+may use it with this groff editing mode by setting the variable,
+"Groff_Use_Tabcompletion = 1", in the groff_mode_hook as per above. The
+variable, "Extended_Wordchars", is set to include the period character as
+part of a word, so that macros/requests are recognized.
+
+The tabcomplete extension is first and foremost an extension that enables
+completion with the <tab> key by default on words that are loaded from a
+file and automatic insertion of code snippets and the like, but it also has
+a built-in help system.  Completion files with extensive help for the "ms"
+and "me" macro packages as well as for troff/nroff requests are supplied in
+the file, "groff_tabcompletion_files.tar_gz" in the git repository. The
+archive contains the three files, ".tabcomplete_troff", ".tabcomplete_me"
+and ".tabcomplete.ms", i.e. three hidden files that must be dumped in your
+home directory. If you edit e.g. a file using the "ms" macros, then the
+corresponding file, ~/.tabcompletion_ms will be loaded. If you start with an
+empty file, then give the file the ".ms" extension.
+
+While it doesn't make much sense to complete on two-letter macros, the help
+system may be useful: Typing <F1> on a macro will show a help entry for it
+in either the message area or in a window. Typing <F2> will present you with
+an "apropos" prompt where you may enter some search string and then all the
+macros/requests that match the search string in their help entries are
+returned. E.g., if you didn't quite remember that macro that pertained to
+setting a margin, just type <F2> -> "margin", and all the macros relating to
+margins are shown in a pop up window along with their help strings. Only
+search results that apply to the currently used macro package in addition to
+pure troff/nroff requests are returned. Matches are sorted by how many times
+the search query appears in the help string.
+
+Hint: hitting <tab> after a ".ft" request pops up the window with font name
+selection. Hitting <tab> after a ".gcolor" request pops up a window with all
+the defined groff color names.
+
+
+                       Using the aspell.sl extension:
+
+
+The "init_aspell();" line, as shown in the mode hook above, will enable
+spell checking, including flyspelling, for your groff documents.
+You must have the line
+
+   autoload("init_aspell", "aspell");
+
+in your ~/.jedrc
+
+See the README files for those two extensions and how to install, enable and
+configure them.
+
 
 Send comments, suggestions or bug reports to me:
 
   Morten Bo Johansen
-  mbj at mbjnet dot dk
+  mbj at hotmail dot com
