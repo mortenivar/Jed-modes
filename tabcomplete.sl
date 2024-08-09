@@ -3,9 +3,9 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.7 2024/03/02
+% Version 0.8.8 2024/07/28
 %
-% Author : Morten Bo Johansen <mbj@mbjnet.dk>
+% Author : Morten Bo Johansen <mortenbo@hotmail.com>
 % License: http://www.fsf.org/copyleft/gpl.html
 %
 % Thanks to John E. Davis for some substantial speed increases in
@@ -31,7 +31,7 @@ custom_variable ("Tabcomplete_Use_Help", 1);
 
 % Set this to '0' to avoid having the help line shown in the
 % minibuffer upon final completion.
-custom_variable ("Show_Help_Upon_Completion", 1);
+custom_variable ("Show_Help_Upon_Completion", 0);
 
 % The completion key. Default is TAB
 custom_variable ("Completion_Key", "\t");
@@ -54,8 +54,8 @@ custom_variable ("Use_Completion_Menu", 0);
 
 % Should there be a space between function name and opening paranthesis?
 % E.g. strtok () vs. strtok(). Looping or conditional keywords will
-% always have a space. The julia language will not accept spaces.
-custom_variable ("Sep_Fun_Par_With_Space", 0);
+% always have a space.
+custom_variable ("Sep_Fun_Par_With_Space", 1);
 %}}}
 %{{{ Autoloads and evalfiles
 % In Debian, require.sl is in a separate package, slsh, which the user
@@ -74,6 +74,7 @@ private variable
   F = NULL;
 
 public variable Words;
+
 %}}}
 %{{{ Private functions
 private define tabcomplete_fit_window()
@@ -166,6 +167,8 @@ private define strchop2 (str, delim)
 % Like fgetslines () but also strips newline characters (JED).
 private define read_file_lines (file)
 {
+  file = expand_filename(file);
+
   variable st = stat_file (file);
   if (st == NULL) return NULL;
   variable bytes;
@@ -186,22 +189,53 @@ private define re_line_match (pat, trim)
   pop_spot ();
 }
 
-% Detect a mismatch in number of left and right paranthesises
-private define n_paranth_mismatch ()
+% Count the number of case insensitive occurrences of a string.
+private define count_strings(str, expr)
 {
-  variable str = "", a, nleft, nright;
+  variable len, matches_n = 0, pos = 1;
+  while (string_match(str, "\\C$expr"$, pos))
+  {
+    (pos, len) = string_match_nth(0);
+    pos += len;
+    matches_n++;
+  }
 
-  push_spot(); str = line_as_string (); pop_spot();
-  a = Char_Type [strlen (str)];
-  init_char_array (a, str);
-  nleft = length (where (a == '('));
-  nright = length (where (a == ')'));
+  return matches_n;
+}
 
-  if (nleft > nright)
-    return nleft-nright;
-  if (nright > nleft)
-    return nleft-nright;
-  return 0;
+% Count the number of a character in a string. This returns a signed
+% integer as opposed to count_char_occurrences() which returns an
+% unsigned one.
+private define count_char_occurrences2(str, ch)
+{
+  variable arr = Char_Type[strlen(str)];
+  init_char_array(arr, str);
+  return length(where(arr == ch));
+}
+
+% Balance the left and right [ ] ( ) { } in a line by either inserting or
+% deleting ']' or ')' '}' at the end of the line, one at a time.
+private define align_delims()
+{
+  variable str, mdelim, delim, ldelim_n, rdelim_n, ndiff;
+
+  push_spot(); str = line_as_string(); pop_spot();
+  bskip_white(); push_spot(); go_left_1(); delim = what_char(); pop_spot();
+  str = str_uncomment_string(str,"\"", "\""); % omit possible delimiters within strings
+  str = str_uncomment_string(str,"\'", "\'");
+
+  if (delim == ')') mdelim = '(';
+  if (delim == '}') mdelim = '{';
+  if (delim == ']') mdelim = '[';
+  
+  rdelim_n = count_char_occurrences2(str, delim);
+  ldelim_n = count_char_occurrences2(str, mdelim);
+  ndiff = ldelim_n - rdelim_n;
+
+  if (ndiff < 0)
+    call("backward_delete_char_untabify");
+  if (ndiff > 0)
+    insert_char(delim);
 }
 
 % Delete buffers with a name that matches an expression
@@ -219,23 +253,6 @@ private define kill_buffers_by_expr (expr)
 private define get_completion (str, stub)
 {
   return str[[strbytelen (stub):]];
-}
-
-private define align_parens ()
-{
-  if (n_paranth_mismatch > 0)
-  {
-    loop (n_paranth_mismatch)
-      return insert (")");
-  }
-  if (n_paranth_mismatch < 0)
-  {
-    loop (-n_paranth_mismatch)
-    {
-      go_left_1 ();
-      del ();
-    }
-  }
 }
 
 %% Produce the hash of words to complete from.
@@ -339,23 +356,37 @@ private variable Completed_Word = "";
 % newline escapes in the syntax, if any.
 private define insert_and_expand_construct (kw, syntax)
 {
+  variable exec_fun = 0;
+
   strchop (syntax, '\n', 0);
   syntax = strtrim ();
   syntax = strjoin (syntax, "\n");
   syntax = strreplace (syntax, Newl_Delim, "\n"); % expand newline delimiter in completions file
   kw = strtrim (kw);
-
   smart_set_mark_cmd ();
+
+  if (char(syntax[0]) == "&") % "syntax" is instead a function to be executed
+  {
+    syntax = strtrim_beg(syntax, "&");
+    exec_fun = 1;
+  }
 
   if (kw[-1] == '@' or 0 == Insert_Completion_Word) % alias
   {
     bdelete_word ();
-    insert (syntax);
+    if (exec_fun) eval(syntax);
+    else insert (syntax);
   }
   else
   {
+    if (exec_fun)
+    {
+      pop_mark_0;
+      insert ("$kw "$);
+      return eval(syntax);
+    }
     if (any(Completed_Word == Loop_Cond_Kws) || Sep_Fun_Par_With_Space)
-      insert (strcat (kw, " ",syntax));
+      insert ("$kw $syntax"$);
     else
       insert (strcat (kw, syntax));
   }
@@ -369,10 +400,8 @@ private define insert_and_expand_construct (kw, syntax)
     () = replace_match("", 1);
   }
 }
-%}}}
-%{{{ User functions
 
-define cmp_fun(a, b)
+private define cmp_fun(a, b)
 {
   return strbytelen(a) > strbytelen(b);
 }
@@ -384,13 +413,13 @@ private define format_and_insert_completion_menu(words_arr)
 {
   variable i = 0, remainder = 0, cols = 1, words_n = length(words_arr);
   variable col_offset, longest_word, pad_n, rows_n = 20;
-  
+
   % sort words by size in ascending order.
-  words_arr = words_arr[array_sort(words_arr, &cmp_fun)]; 
+  words_arr = words_arr[array_sort(words_arr, &cmp_fun)];
   longest_word = words_arr[-1];
   % the space offset between columns
   col_offset = strbytelen(longest_word) + 2;
-  
+
   % number of completion candidates > 20
   if (words_n > rows_n)
   {
@@ -409,7 +438,7 @@ private define format_and_insert_completion_menu(words_arr)
       loop (pad_n)
         words_arr = [words_arr, ""];
     }
-    
+
     % how many columns do we need?
     cols = length(words_arr)/rows_n;
 
@@ -428,6 +457,27 @@ private define format_and_insert_completion_menu(words_arr)
     insert(strjoin(words_arr, "\n"));
 }
 
+% Sort an array of strings in descending order according to how many
+% times a particular word or expression occurs within them.
+private define sort_by_relevancy(str_arr, expr)
+{
+  variable A = Assoc_Type[Int_Type], values, strs_sorted, i = 0;
+
+  % populate the hash with strings to be sorted as the keys and its
+  % corresponding number of occurrences of <expr> as the values.
+  _for i (0, length(str_arr)-1, 1)
+    A[str_arr[i]] = count_strings(str_arr[i], expr);
+
+  values = assoc_get_values(A);
+  i = array_sort(values);
+  strs_sorted = assoc_get_keys(A)[i];
+  array_reverse(strs_sorted);
+  return strs_sorted;
+}
+
+%}}}
+%{{{ User functions
+
 %% Complete the word behind the editing point from words in a file
 define tabcomplete ()
 {
@@ -442,16 +492,25 @@ define tabcomplete ()
     hlp = "",
     i = 0;
 
-  if (blooking_at(")"))
-    return align_parens();
+  % balance [] () {}
+  if ((blooking_at(")")) || (blooking_at("]")) || (blooking_at("}")))
+    return align_delims();
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
-  if (1 == re_line_match ("^$", 1) || % don't complete on empty line
-      0 == strlen (stub) || % don't complete if no word characters behind editing point
-      markp() || % don't complete if a region is marked
-      isalnum(what_char)) % don't complete if editing point is on an alphanumeric character
-    return indent_region_or_line();
+  % conditions where completion shall not be triggered
+  ifnot (eobp())
+  {
+    if (0 == isspace(what_char) || % editing point not on a whitespace character
+        0 == strlen(stub) ||
+        1 == re_line_match ("^ *$", 1) || % don't complete on line with only whitespace
+        1 == bolp() || % don't complete if at the beginning of a line
+        1 == markp() || % don't complete if a region is marked
+        1 == re_looking_at(" ()"))
+    {
+      return indent_region_or_line();
+    }
+  }
 
   % get all words where stub forms the beginning of the words
   completion_words = Words [where (0 == strnbytecmp (stub, Words, strbytelen (stub)))];
@@ -467,7 +526,7 @@ define tabcomplete ()
   completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
   completions = completions[array_sort(completions, &cmp_fun)];
 
-  ifnot (length(completions)) return flush("no completions");
+  if (length(completions) == 0) return flush("no completions");
 
   % This pops up a buffer with a menu of all completion candidates if
   % the custom variable, Use_Completion_Menu = 1
@@ -639,15 +698,17 @@ define show_hlp_for_word_at_point ()
       {
         kill_buffers_by_expr ("*** Help for ");
         pop2buf ("*** Help for \"$word\" ***"$);
-        insert (word + ": " + F[word][1]);
-        bob ();
-        call ("format_paragraph");
+        insert_and_expand_construct(word + " ", hlpmsg);
         tabcomplete_fit_window();
         set_buffer_modified_flag (0);
         most_mode ();
+        bob ();
       }
     else
+    {
+      hlpmsg = strreplace(hlpmsg, Newl_Delim, " ");
       flush (hlpmsg);
+    }
   }
 }
 
@@ -657,53 +718,60 @@ define compl_apropos ()
 {
   variable
     values = assoc_get_values (F),
-    keys_l = {},
-    values_l = {},
-    matches = {},
-    buffers = [""],
+    kws = String_Type[0],
+    hlp_strs = String_Type[0],
+    matches = String_Type[0],
     hlp = "",
-    i = 0,
-    str = "";
+    expr = "";
 
   Completions_File = get_blocal_var ("Completions_File");
 
   ifnot (any (array_map (Int_Type, &length, values) > 1))
     throw RunTimeError, "$Completions_File contains no help or apropos messages"$;
 
-  if ("slang" == detect_mode ())
-    return apropos;
-  else
-    str = read_mini ("Apropos:", "", "");
+  if ("slang" == detect_mode ()) return apropos;
+  else expr = read_mini ("Apropos:", "", "");
 
   variable key, val;
-  % list functions with search string first, then descriptions with search string
+
   foreach key, val (F)
   {
     try
     {
       hlp = val[1];
+      hlp = strreplace (hlp, Newl_Delim, "\n");
     }
     catch IndexError: hlp = "";
 
-    if (string_match (key, "\\C$str"$, 1))
-      list_append (keys_l, strcat (key, ": ", hlp));
-    else if (string_match (hlp, "\\C$str"$, 1))
-      list_append (values_l, strcat (key, ": ", hlp));
+    if (string_match (key, "\\C$expr"$, 1))
+      kws = [kws, strcat (key, ": ", hlp)];
+    else if (string_match (hlp, "\\C$expr"$, 1))
+      hlp_strs = [hlp_strs, strcat (key, ": ", hlp)];
   }
 
-  matches = list_concat (keys_l, values_l);
+  % Matching of the search string is performed on both the keyword and
+  % the help string (if any). Matches are sorted such that if the
+  % keyword contains the search string, it is listed first. Matches
+  % where the search string is contained in the help string are then
+  % sorted by relevancy, which in this context means by the number of
+  % occurrences of the search string within the help strings. Matching
+  % is case insensitive.
+  hlp_strs = sort_by_relevancy(hlp_strs, expr);
+  matches = [matches, kws, hlp_strs];
 
   ifnot (length (matches))
-    return flush ("nothing relevant found for $str"$);
+    return flush ("nothing relevant found for \"$expr\""$);
 
-  matches = strjoin (list_to_array (matches), "\n");
+  matches = strjoin(matches, " \n\n--------------------------------------------------------------------------\n\n");
   kill_buffers_by_expr ("*** Apropos");
   pop2buf ("*** Apropos \"$str\" ***"$);
   insert (matches);
-  local_setkey ("show_hlp_for_word_at_point", Key_F1);
+  onewindow;
+  local_setkey ("show_hlp_for_word_at_point", "^M");
   set_buffer_modified_flag (0);
   most_mode ();
   bob ();
+  flush("Type 'q' to quit");
 }
 
 % Select a new file with completions
@@ -776,6 +844,24 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
 }
 add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
 
+$1 = "tabcomplete";
+
+ifnot (keymap_p($1))
+  copy_keymap($1, what_keymap());
+
+definekey("tabcomplete", Completion_Key, $1);
+definekey_reserved ("select_completions_file", "c", $1);
+definekey_reserved ("append_word_to_completions_file", "w", $1);
+
+if (Tabcomplete_Use_Help)
+{
+  definekey("show_hlp_for_word_at_point", Key_F1, $1);
+  definekey("compl_apropos", Key_F2, $1);
+}
+
+if ("slang" == detect_mode() || "c" == detect_mode())
+  definekey("move_down_2_and_indent", Key_Shift_Tab, $1);
+
 private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
@@ -825,15 +911,7 @@ define init_tabcomplete ()
   ifnot (any (Completions_File == Completions_Files))
     make_completions_hash (Completions_File);
 
-  if (Tabcomplete_Use_Help)
-  {
-    local_setkey ("show_hlp_for_word_at_point", Key_F1);
-    local_setkey ("compl_apropos", Key_F2);
-  }
-  local_setkey ("tabcomplete", Completion_Key);
-  local_setkey ("move_down_2_and_indent", Key_Shift_Tab);
-  local_setkey_reserved ("select_completions_file", "c");
-  local_setkey_reserved ("append_word_to_completions_file", "w");
+  use_keymap ($1);
   define_blocal_var ("Words", Words);
   define_blocal_var ("F", F);
   Completions_Files = [Completions_Files, Completions_File];
