@@ -499,7 +499,7 @@ define tabcomplete ()
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % conditions where completion shall not be triggered
-  ifnot (eobp())
+  ifnot (eobp() || ')' == what_char())
   {
     if (0 == isspace(what_char) || % editing point not on a whitespace character
         0 == strlen(stub) ||
@@ -691,7 +691,7 @@ define show_hlp_for_word_at_point ()
   {
     if (length (F[word]) > 1)
       hlpmsg = F[word][1];
-    else
+    else if (0 != run_program("man $word 2>/dev/null"$))
       return flush ("no help for \"$word\""$);
 
     if (strlen (hlpmsg) >= window_info ('w'))
