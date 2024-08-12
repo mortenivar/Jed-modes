@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.8 2024/07/28
+% Version 0.8.9 2024/08/12
 %
 % Author : Morten Bo Johansen <mortenbo@hotmail.com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -385,7 +385,9 @@ private define insert_and_expand_construct (kw, syntax)
       insert ("$kw "$);
       return eval(syntax);
     }
-    if (any(Completed_Word == Loop_Cond_Kws) || Sep_Fun_Par_With_Space)
+    if (any(Completed_Word == Loop_Cond_Kws) ||
+        1 == Sep_Fun_Par_With_Space ||
+        0 == is_substr(syntax, "("))
       insert ("$kw $syntax"$);
     else
       insert (strcat (kw, syntax));
@@ -499,7 +501,7 @@ define tabcomplete ()
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % conditions where completion shall not be triggered
-  ifnot (eobp() || ')' == what_char())
+  ifnot (eobp() || any(what_char() == [')',',']))
   {
     if (0 == isspace(what_char) || % editing point not on a whitespace character
         0 == strlen(stub) ||
@@ -624,15 +626,7 @@ define tabcomplete ()
   catch IndexError;
 
   if (strlen(syntax))
-  {
-    if ("slang" == detect_mode () && re_line_match ("array_map", 0))
-    {
-      insert(completion);
-      go_right_1();
-    }
-    else
-      insert_and_expand_construct (completion, syntax);
-  }
+    insert_and_expand_construct (completion, syntax);
   else
   {
     if (any(keystr == ["\r","\eOC",Completion_Key]))
