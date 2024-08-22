@@ -141,6 +141,9 @@ and "Groff_Cmd", may also be changed on the fly from within the editor.
 - <ctrl>-cd will display a one-line menu in the message area with items for
             drawing various figures with troff requests.
 
+Finally, the keys for the functions, forward_paragraph() and
+backward_paragraph() will jump forward or backward to regular text portions
+of the document, skipping over macros, comments, etc.
 
                               Using a mode hook:
 
@@ -169,7 +172,10 @@ If you installed the tabcomplete.sl extension from the git repository, you
 may use it with this groff editing mode by setting the variable,
 "Groff_Use_Tabcompletion = 1", in the groff_mode_hook as per above. The
 variable, "Extended_Wordchars", is set to include the period character as
-part of a word, so that macros/requests are recognized.
+part of a word, so that macros/requests are recognized. The variable,
+"Newl_Delim" must be set to "\t", the TAB character, in order to have the
+help messages in the ~/.tabcomplete_* completion files for the mode
+formatted correctly.
 
 The tabcomplete extension is first and foremost an extension that enables
 completion with the <tab> key by default on words that are loaded from a
