@@ -1,5 +1,5 @@
 # Jed-modes
-Some modes I have written for the Jed editor:
+Some modes for the Jed editor (https://jedsoft.org/jed):
 
 
 - _sh.sl_ - A Mode to Edit Shell Scripts
