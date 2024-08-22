@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.8.9 2024/08/12
+% Version 0.9.0 2024/08/22
 %
 % Author : Morten Bo Johansen <mortenbo@hotmail.com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -501,7 +501,7 @@ define tabcomplete ()
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % conditions where completion shall not be triggered
-  ifnot (eobp() || any(what_char() == [')',',']))
+  ifnot (eobp() || any(what_char() == [')',','])) % completion triggered on these
   {
     if (0 == isspace(what_char) || % editing point not on a whitespace character
         0 == strlen(stub) ||
@@ -681,12 +681,19 @@ define show_hlp_for_word_at_point ()
   if ("slang" == detect_mode ())
     return (@hlpfun (word));
 
+  % A lot of C-functions have a manual page
+  if ("c" == detect_mode())
+  {
+    if (0 != run_program("man $word 2>/dev/null"$))
+      return flush("no help for \"$word\""$);
+
+    return;
+  }
+  
   if (assoc_key_exists (F, word))
   {
     if (length (F[word]) > 1)
       hlpmsg = F[word][1];
-    else if (0 != run_program("man $word 2>/dev/null"$))
-      return flush ("no help for \"$word\""$);
 
     if (strlen (hlpmsg) >= window_info ('w'))
       {
@@ -838,24 +845,6 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
 }
 add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
 
-$1 = "tabcomplete";
-
-ifnot (keymap_p($1))
-  copy_keymap($1, what_keymap());
-
-definekey("tabcomplete", Completion_Key, $1);
-definekey_reserved ("select_completions_file", "c", $1);
-definekey_reserved ("append_word_to_completions_file", "w", $1);
-
-if (Tabcomplete_Use_Help)
-{
-  definekey("show_hlp_for_word_at_point", Key_F1, $1);
-  definekey("compl_apropos", Key_F2, $1);
-}
-
-if ("slang" == detect_mode() || "c" == detect_mode())
-  definekey("move_down_2_and_indent", Key_Shift_Tab, $1);
-
 private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
@@ -904,10 +893,22 @@ define init_tabcomplete ()
   % completions file when opening a new buffer.
   ifnot (any (Completions_File == Completions_Files))
     make_completions_hash (Completions_File);
-
-  use_keymap ($1);
+  
   define_blocal_var ("Words", Words);
   define_blocal_var ("F", F);
   Completions_Files = [Completions_Files, Completions_File];
+
+  local_setkey("tabcomplete", Completion_Key);
+  local_setkey_reserved("select_completions_file", "c");
+  local_setkey_reserved("append_word_to_completions_file", "w");
+
+  if ("slang" == detect_mode() || "c" == detect_mode())
+    local_setkey("move_down_2_and_indent", Key_Shift_Tab);
+
+  if (Tabcomplete_Use_Help)
+  {
+    local_setkey("show_hlp_for_word_at_point", Key_F1);
+    local_setkey("compl_apropos", Key_F2);
+  }
 }
 %}}}
