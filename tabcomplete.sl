@@ -3,9 +3,9 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.0 2024/08/22
+% Version 0.9.1 2024/08/30
 %
-% Author : Morten Bo Johansen <mortenbo@hotmail.com>
+% Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
 %
 % Thanks to John E. Davis for some substantial speed increases in
@@ -37,7 +37,6 @@ custom_variable ("Show_Help_Upon_Completion", 0);
 custom_variable ("Completion_Key", "\t");
 
 % What characters may constitute a word
-% custom_variable ("Wordchars", "");
 custom_variable ("Wordchars", "\a"R);
 
 % What other characters may constitute a word?
@@ -56,6 +55,9 @@ custom_variable ("Use_Completion_Menu", 0);
 % E.g. strtok () vs. strtok(). Looping or conditional keywords will
 % always have a space.
 custom_variable ("Sep_Fun_Par_With_Space", 1);
+
+% In SLang mode, if set to '1', completion will be enabled for the minibuffer
+custom_variable ("SLang_Completion_In_Minibuffer", 0);
 %}}}
 %{{{ Autoloads and evalfiles
 % In Debian, require.sl is in a separate package, slsh, which the user
@@ -124,7 +126,7 @@ private define detect_mode ()
 % Return the word under or before the cursor.
 private define get_word ()
 {
-  variable wchars = "\a"R + Extended_Wordchars;
+  variable wchars = Wordchars + Extended_Wordchars;
 
   if (blocal_var_exists("Wordchars") && blocal_var_exists("Extended_Wordchars"))
     wchars = get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars");
@@ -294,7 +296,7 @@ private define make_completions_hash (Completions_File)
   {
     include_file = strtok (include_file)[1];
     include_file = strtrim (include_file, "\"");
-    lines = read_file_lines (include_file);
+    lines = read_file_lines (include_file); 
     if (lines == NULL)
     {
       flush ("Could not open \"$include_file\""$);
@@ -361,7 +363,12 @@ private define insert_and_expand_construct (kw, syntax)
   strchop (syntax, '\n', 0);
   syntax = strtrim ();
   syntax = strjoin (syntax, "\n");
-  syntax = strreplace (syntax, Newl_Delim, "\n"); % expand newline delimiter in completions file
+
+  if (MINIBUFFER_ACTIVE) % don't expand in the minibuffer
+    syntax = strreplace (syntax, Newl_Delim, "");
+  else
+    syntax = strreplace (syntax, Newl_Delim, "\n"); % expand newline delimiter in completions file
+
   kw = strtrim (kw);
   smart_set_mark_cmd ();
 
@@ -501,7 +508,7 @@ define tabcomplete ()
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % conditions where completion shall not be triggered
-  ifnot (eobp() || any(what_char() == [')',','])) % completion triggered on these
+  ifnot (eobp() || any(what_char() == [')',','])) % completion enabled on these
   {
     if (0 == isspace(what_char) || % editing point not on a whitespace character
         0 == strlen(stub) ||
@@ -586,13 +593,14 @@ define tabcomplete ()
         else
         {
           flush ("no more completions");
+          update_sans_update_hook(0);
           i = 0; % restart cycle
         }
       }
 
       keystr = get_keystr (0);
 
-      if (markp ())
+      if (is_visible_mark())
         del_region ();
 
       switch (keystr)
@@ -655,7 +663,11 @@ define tabcomplete ()
       }
     }
     else
-      flush (hlp);
+    {
+       % no help message with minibuffer tabcompletion
+      ifnot (MINIBUFFER_ACTIVE)
+        flush (hlp);
+    }
   }
 }
 
@@ -909,6 +921,13 @@ define init_tabcomplete ()
   {
     local_setkey("show_hlp_for_word_at_point", Key_F1);
     local_setkey("compl_apropos", Key_F2);
+  }
+
+  if (SLang_Completion_In_Minibuffer)
+  {
+    if ("slang" != detect_mode ()) return;
+    undefinekey(Completion_Key, "Mini_Map");
+    definekey("tabcomplete", Completion_Key, "Mini_Map");
   }
 }
 %}}}
