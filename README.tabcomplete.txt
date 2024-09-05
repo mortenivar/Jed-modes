@@ -238,8 +238,12 @@ spaces, so set it to 0 in that case.
 
   variable SLang_Completion_In_Minibuffer = 0;
   
-Setting this variable in SLang mode to '1' will enable tabcompletion in the
-minibuffer. 
+Setting this variable in SLang mode to '1' will enable this utility's
+completion at the minibuffer's S-Lang> cli prompt. Note that key (sequence)
+bound to invoking the S-Lang> prompt is detected and if you have more than
+one key (sequence) bound to invoking the prompt, it may not detect the one
+you're actually using. In that case, check those key bindings and remove the
+one(s) you're not using.
 
 All of these variables should first be entered globally in your ~/.jedrc
 with your preferred default values (or no values) and then possibly fine
