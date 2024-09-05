@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.1 2024/08/30
+% Version 0.9.2 2024/09/05
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -56,7 +56,8 @@ custom_variable ("Use_Completion_Menu", 0);
 % always have a space.
 custom_variable ("Sep_Fun_Par_With_Space", 1);
 
-% In SLang mode, if set to '1', completion will be enabled for the minibuffer
+% In SLang mode, if set to '1', completion will be enabled at the
+% minibuffer's S-Lang> cli prompt
 custom_variable ("SLang_Completion_In_Minibuffer", 0);
 %}}}
 %{{{ Autoloads and evalfiles
@@ -364,7 +365,7 @@ private define insert_and_expand_construct (kw, syntax)
   syntax = strtrim ();
   syntax = strjoin (syntax, "\n");
 
-  if (MINIBUFFER_ACTIVE) % don't expand in the minibuffer
+  if (MINIBUFFER_ACTIVE) % no newlines in the minibuffer
     syntax = strreplace (syntax, Newl_Delim, "");
   else
     syntax = strreplace (syntax, Newl_Delim, "\n"); % expand newline delimiter in completions file
@@ -857,6 +858,40 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
 }
 add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
 
+% Return a key (sequence) bound to the "evaluate_cmd" function.
+define get_evaluate_cmd_key()
+{
+  variable n, key;
+
+  n = which_key("evaluate_cmd");
+
+  if (n == 0) return;
+
+  loop (n)
+    key = ();
+
+  return key;
+}
+
+% This is a stand-in for the S-Lang> cli prompt to allow for
+% completion at said prompt.
+define slang_mini_completion()
+{
+  variable fun;
+  undefinekey(Completion_Key, "Mini_Map");
+  definekey("tabcomplete", Completion_Key, "Mini_Map");
+  try
+  {
+    fun = read_mini("S-Lang>", "", "");
+    eval(fun);
+  }
+  finally
+  {
+    undefinekey(Completion_Key, "Mini_Map");
+    definekey("mini_complete", Completion_Key, "Mini_Map");
+  }
+}
+
 private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
@@ -905,7 +940,7 @@ define init_tabcomplete ()
   % completions file when opening a new buffer.
   ifnot (any (Completions_File == Completions_Files))
     make_completions_hash (Completions_File);
-  
+
   define_blocal_var ("Words", Words);
   define_blocal_var ("F", F);
   Completions_Files = [Completions_Files, Completions_File];
@@ -925,9 +960,8 @@ define init_tabcomplete ()
 
   if (SLang_Completion_In_Minibuffer)
   {
-    if ("slang" != detect_mode ()) return;
-    undefinekey(Completion_Key, "Mini_Map");
-    definekey("tabcomplete", Completion_Key, "Mini_Map");
+    ifnot ("slang" == detect_mode()) return;
+    local_setkey("slang_mini_completion", get_evaluate_cmd_key());
   }
 }
 %}}}
