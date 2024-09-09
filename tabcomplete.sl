@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.2 2024/09/05
+% Version 0.9.3 2024/09/09
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -237,8 +237,18 @@ private define align_delims()
 
   if (ndiff < 0)
     call("backward_delete_char_untabify");
-  if (ndiff > 0)
+  else if (ndiff > 0)
     insert_char(delim);
+  else
+  {
+    % if parantheses are aligned and it is not a conditional/loop/define
+    % line, then just insert the final ';' plus a newline and indent.
+    ifnot (length(where(array_map(Int_Type, &re_line_match, Loop_Cond_Kws, 1))))
+    {
+      insert(";\n");
+      indent_line();
+    }
+  }
 }
 
 % Delete buffers with a name that matches an expression
@@ -507,6 +517,8 @@ define tabcomplete ()
     return align_delims();
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
+
+  if (looking_at("\"")) return skip_chars("\",");
 
   % conditions where completion shall not be triggered
   ifnot (eobp() || any(what_char() == [')',','])) % completion enabled on these
