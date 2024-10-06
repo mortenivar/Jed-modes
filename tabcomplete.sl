@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.3 2024/09/09
+% Version 0.9.4 2024/10/06
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -37,7 +37,7 @@ custom_variable ("Show_Help_Upon_Completion", 0);
 custom_variable ("Completion_Key", "\t");
 
 % What characters may constitute a word
-custom_variable ("Wordchars", "\a"R);
+custom_variable ("Wordchars", "\\w");
 
 % What other characters may constitute a word?
 custom_variable ("Extended_Wordchars", "");
@@ -199,7 +199,7 @@ private define count_strings(str, expr)
   while (string_match(str, "\\C$expr"$, pos))
   {
     (pos, len) = string_match_nth(0);
-    pos += len;
+    pos += len + 1;
     matches_n++;
   }
 
@@ -233,6 +233,9 @@ private define align_delims()
   
   rdelim_n = count_char_occurrences2(str, delim);
   ldelim_n = count_char_occurrences2(str, mdelim);
+
+  if (ldelim_n == 0) return;
+
   ndiff = ldelim_n - rdelim_n;
 
   if (ndiff < 0)
@@ -241,12 +244,17 @@ private define align_delims()
     insert_char(delim);
   else
   {
+    ifnot ("slang" == detect_mode()) return;
+
     % if parantheses are aligned and it is not a conditional/loop/define
     % line, then just insert the final ';' plus a newline and indent.
-    ifnot (length(where(array_map(Int_Type, &re_line_match, Loop_Cond_Kws, 1))))
+    ifnot (length(where(array_map(Int_Type, &re_line_match, "^" + Loop_Cond_Kws, 1))))
     {
-      insert(";\n");
-      indent_line();
+      ifnot (blooking_at(";") || looking_at(";"))
+      {
+	insert(";\n");
+	indent_line();
+      }
     }
   }
 }
@@ -495,6 +503,14 @@ private define sort_by_relevancy(str_arr, expr)
   return strs_sorted;
 }
 
+% A blooking_at_char() that may use character classes
+private define blooking_at_char(chars_set)
+{
+  push_spot(); bskip_white(); go_left_1();
+  not strlen(str_delete_chars(char(what_char()), chars_set));
+  pop_spot();
+}
+
 %}}}
 %{{{ User functions
 
@@ -512,27 +528,25 @@ define tabcomplete ()
     hlp = "",
     i = 0;
 
-  % balance [] () {}
+  % balance [], (), {}
   if ((blooking_at(")")) || (blooking_at("]")) || (blooking_at("}")))
     return align_delims();
 
-  stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
+  if (looking_at("\",")) return skip_chars("\",");
+  if (looking_at(" =")) return skip_chars(" =");
 
-  if (looking_at("\"")) return skip_chars("\",");
-
-  % conditions where completion shall not be triggered
-  ifnot (eobp() || any(what_char() == [')',','])) % completion enabled on these
+  ifnot (MINIBUFFER_ACTIVE)
   {
-    if (0 == isspace(what_char) || % editing point not on a whitespace character
-        0 == strlen(stub) ||
-        1 == re_line_match ("^ *$", 1) || % don't complete on line with only whitespace
-        1 == bolp() || % don't complete if at the beginning of a line
-        1 == markp() || % don't complete if a region is marked
-        1 == re_looking_at(" ()"))
+    ifnot (eobp())
     {
-      return indent_region_or_line();
+      if (0 == blooking_at_char(Wordchars + Extended_Wordchars) ||
+	  1 == markp() ||
+	  0 == isspace(what_char()))
+	return indent_region_or_line();
     }
   }
+  
+  stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % get all words where stub forms the beginning of the words
   completion_words = Words [where (0 == strnbytecmp (stub, Words, strbytelen (stub)))];
@@ -548,12 +562,15 @@ define tabcomplete ()
   completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
   completions = completions[array_sort(completions, &cmp_fun)];
 
-  if (length(completions) == 0) return flush("no completions");
+  if (length(completions) == 0 || stub + completions[-1] == stub)
+    return flush("no completions");
 
   % This pops up a buffer with a menu of all completion candidates if
   % the custom variable, Use_Completion_Menu = 1
   if (Use_Completion_Menu)
   {
+    if (MINIBUFFER_ACTIVE) return;
+
     variable completed_words, I, entries, buf = whatbuf, mbuf = "***Completions***";
 
     stub = strtrim (get_word ());
@@ -605,7 +622,9 @@ define tabcomplete ()
         }
         else
         {
-          flush ("no more completions");
+          ifnot (MINIBUFFER_ACTIVE)
+            flush ("no more completions");
+
           update_sans_update_hook(0);
           i = 0; % restart cycle
         }
@@ -877,7 +896,7 @@ define get_evaluate_cmd_key()
 
   n = which_key("evaluate_cmd");
 
-  if (n == 0) return;
+  if (n == 0) return "^X\e"; % the default from emacs.sl
 
   loop (n)
     key = ();
@@ -886,12 +905,21 @@ define get_evaluate_cmd_key()
 }
 
 % This is a stand-in for the S-Lang> cli prompt to allow for
-% completion at said prompt.
+% SLang/Jed completions at said prompt.
 define slang_mini_completion()
 {
   variable fun;
+  variable words = get_blocal_var ("Words"); % completion target words from calling buffer
+  variable f = get_blocal_var ("F"); % associated fields to completion target words
+
+  make_completions_hash(expand_filename("~/.tabcomplete_slang"));
   undefinekey(Completion_Key, "Mini_Map");
   definekey("tabcomplete", Completion_Key, "Mini_Map");
+
+#ifexists mini_isearch
+  definekey ("mini_isearch", "^r","Mini_Map");
+#endif
+
   try
   {
     fun = read_mini("S-Lang>", "", "");
@@ -899,6 +927,10 @@ define slang_mini_completion()
   }
   finally
   {
+    Words = words; % reset completion target words to those of calling buffer
+    F = f; % ditto with their associated fields
+
+    % make sure that alt-x completions work again.
     undefinekey(Completion_Key, "Mini_Map");
     definekey("mini_complete", Completion_Key, "Mini_Map");
   }
@@ -957,22 +989,30 @@ define init_tabcomplete ()
   define_blocal_var ("F", F);
   Completions_Files = [Completions_Files, Completions_File];
 
+  local_unsetkey(Completion_Key);
   local_setkey("tabcomplete", Completion_Key);
+  local_unsetkey_reserved("c");
+  local_unsetkey_reserved("w");
   local_setkey_reserved("select_completions_file", "c");
   local_setkey_reserved("append_word_to_completions_file", "w");
 
   if ("slang" == detect_mode() || "c" == detect_mode())
+  {
+    local_unsetkey(Key_Shift_Tab);
     local_setkey("move_down_2_and_indent", Key_Shift_Tab);
+  }
 
   if (Tabcomplete_Use_Help)
   {
+    local_unsetkey(Key_F1);
+    local_unsetkey(Key_F2);
     local_setkey("show_hlp_for_word_at_point", Key_F1);
     local_setkey("compl_apropos", Key_F2);
   }
 
   if (SLang_Completion_In_Minibuffer)
   {
-    ifnot ("slang" == detect_mode()) return;
+    local_unsetkey(get_evaluate_cmd_key());
     local_setkey("slang_mini_completion", get_evaluate_cmd_key());
   }
 }
