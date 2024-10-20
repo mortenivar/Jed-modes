@@ -6,6 +6,8 @@ Some modes for the Jed editor (https://jedsoft.org/jed):
 
 - _julia.sl_ - A Mode to Edit Julia Programming Code
 
+- _lua.sl_ - A Mode to Edit Lua Programming Code
+
 - _po_mode.sl_ - A Mode for Editing Gettext Portable Object Files (*.po)
 
 - _groff_mode.sl_ - A Mode for Editing nroff/troff/groff Files
