@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.4 2024/10/06
+% Version 0.9.5 2024/10/20
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -56,8 +56,8 @@ custom_variable ("Use_Completion_Menu", 0);
 % always have a space.
 custom_variable ("Sep_Fun_Par_With_Space", 1);
 
-% In SLang mode, if set to '1', completion will be enabled at the
-% minibuffer's S-Lang> cli prompt
+% If set to '1', completion will be enabled at the minibuffer's
+% S-Lang> cli prompt
 custom_variable ("SLang_Completion_In_Minibuffer", 0);
 %}}}
 %{{{ Autoloads and evalfiles
@@ -252,8 +252,8 @@ private define align_delims()
     {
       ifnot (blooking_at(";") || looking_at(";"))
       {
-	insert(";\n");
-	indent_line();
+        insert(";\n");
+        indent_line();
       }
     }
   }
@@ -537,15 +537,14 @@ define tabcomplete ()
 
   ifnot (MINIBUFFER_ACTIVE)
   {
-    ifnot (eobp())
-    {
-      if (0 == blooking_at_char(Wordchars + Extended_Wordchars) ||
-	  1 == markp() ||
-	  0 == isspace(what_char()))
-	return indent_region_or_line();
-    }
+    if (markp()) return indent_region_or_line();
+
+    ifnot (blooking_at_char(Wordchars + Extended_Wordchars) &&
+          (isspace(what_char()) || eobp()) ||
+           looking_at(")"))
+      return indent_region_or_line();
   }
-  
+
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
   % get all words where stub forms the beginning of the words
@@ -911,8 +910,13 @@ define slang_mini_completion()
   variable fun;
   variable words = get_blocal_var ("Words"); % completion target words from calling buffer
   variable f = get_blocal_var ("F"); % associated fields to completion target words
-
+  variable buf = whatbuf();
+  variable wordchars = get_blocal_var("Wordchars") + get_blocal_var("Extended_Wordchars");
+  variable newl_delim = Newl_Delim;
+  
   make_completions_hash(expand_filename("~/.tabcomplete_slang"));
+  Wordchars = "-a-zA-Z0-9!#;@_$";
+  Newl_Delim = "\\n";
   undefinekey(Completion_Key, "Mini_Map");
   definekey("tabcomplete", Completion_Key, "Mini_Map");
 
@@ -929,6 +933,8 @@ define slang_mini_completion()
   {
     Words = words; % reset completion target words to those of calling buffer
     F = f; % ditto with their associated fields
+    Wordchars = wordchars;
+    Newl_Delim = newl_delim;
 
     % make sure that alt-x completions work again.
     undefinekey(Completion_Key, "Mini_Map");
