@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.1.0 (2024/10/20)
+% Version = 0.1.1 (2024/10/26)
 
 require("pcre");
 autoload("add_keywords", "syntax");
@@ -51,16 +51,16 @@ private variable Lua_Funcs =
 
 % Keywords that begin a block or sub-block
 private variable Lua_Block_Beg_Kws =
-  ["function","if","else","elseif","for","while","do","repeat","{","}{","("];
+  ["function","if","else","elseif","for","while","do","repeat","{","}{"];
 
 % Keywords that end a block or sub-block
-private variable Lua_Block_End_Kws = ["end","else","elseif","until","}",")"];
+private variable Lua_Block_End_Kws = ["end","else","elseif","until","}"];
 
 % The regex pattern to detect keywords. It captures at most two
 % keywords, one conditional/looping keyword and/or the 'end' keyword
 % if present in the same line.
 private variable Pat = "\\b(function|if|else|elseif|for|while|until|repeat|" +
-                       "do|end)\\b(?:.*?(\\bend\\b),?\\h*\}?\\)?$)?";
+                       "do|end)\\b.*?(\\b(end|return)\\b[ ,;()}]*)?$";
 
 % Associative array to insert and expand syntaxes for its keys
 Lua_Kw_Expand_Hash["if"] = " @ then\n \nend";
@@ -98,6 +98,7 @@ private define lua_setup_syntax()
   create_syntax_table(Syntax_Table);
   define_syntax ("--", "", '%', Syntax_Table); % comments
   define_syntax ("--[[", "]]", '%', Syntax_Table); % comments
+  define_syntax ("[[", "]]", '%', Syntax_Table); % comment but should have been a string!
   define_syntax("([{", ")]}", '(', Syntax_Table);
   define_syntax('"', '"', Syntax_Table);
   define_syntax('`', '"', Syntax_Table);
@@ -106,7 +107,7 @@ private define lua_setup_syntax()
   define_syntax("0-9a-zA-Z_", 'w', Syntax_Table); % words
   define_syntax ("-+0-9.eE", '0', Syntax_Table); % Numbers
   define_syntax(",;:.", ',', Syntax_Table);
-  define_syntax("-+/&*=<>|!~^", '+', Syntax_Table);
+  define_syntax("-+/&%*=<>|!~^", '+', Syntax_Table);
   set_syntax_flags (Syntax_Table, 0); % case sensitive keywords
   use_syntax_table(Syntax_Table);
 }
@@ -160,7 +161,7 @@ private define lua_get_kw()
   variable line = lua_line_as_str();
 
   % remove a trailing comment part in a line
-  if (lua_re_match_line("^.+--"))
+  if (lua_re_match_line("^.+-- "))
     line = pcre_matches("(^.*)\\h*--.*?$", line)[-1];
 
   kws = pcre_matches(Pat, line);
@@ -173,8 +174,8 @@ private define lua_get_kw()
 
     if (length (kws) > 1)
     {
-      % one-liners, function ...end
-      if (kw == "end" && any(kws[0] == Lua_Block_Beg_Kws))
+      % one-liners, function ... end
+      if (any (kw == ["end","return"]) && any(kws[0] == ["if","for","while","function"]))
         kw = NULL;
     }
   }
@@ -233,8 +234,12 @@ private define find_kw_prev_kw_and_col()
 
   if (this_kw == "until")
   {
-    if (re_bsearch("^ *\\<repeat\\>"))
-      prev_kw = "repeat";
+    while (up(1))
+    {
+      (prev_kw,) = lua_get_kw();
+      % supports nested repeat ... until
+      if ((prev_kw == "until") || (prev_kw == "repeat")) break;
+    }
   }
   else
   {
@@ -267,11 +272,11 @@ private define lua_get_indentation()
   if (any(this_kw == ["else","elseif"]) && not any(prev_kw == ["if","elseif"]))
     return prev_kw_col - Lua_Indent_Default;
 
+  if (any(this_kw == ["end","until"]) && any(prev_kw == ["end","until","{","}"]))
+    return prev_kw_col - Lua_Indent_Default;
+
   if (any(this_kw == ["else","elseif","until","do"]))
     return prev_kw_col;
-
-  if (this_kw == "end" && any(prev_kw == ["end","until","{","}"]))
-    return prev_kw_col - Lua_Indent_Default;
 
   if (this_kw == "end" && any(prev_kw == Lua_Block_Beg_Kws))
     return prev_kw_col;
@@ -291,7 +296,7 @@ private define lua_indent_line()
 
   if (indentation == NULL) return skip_white();
 
-  bol(); trim(); insert_spaces(indentation);
+  bol(); trim(); insert_spaces(indentation); eol();
 }
 
 private define _lua_newline_and_indent()
@@ -395,21 +400,22 @@ define lua_exec_region_or_buffer()
 private define lua_goto_level(dir)
 {
   variable kw, col = 1;
-  variable kws = ["if","elseif","else","for","while","function","repeat","{"];
-  variable move = &down, kw_a = ["end","until","}"];
+  variable kws_beg = Lua_Block_Beg_Kws;
+  variable kws_end = Lua_Block_End_Kws;
+  variable move = &down;
 
   (kw,) = lua_get_kw();
 
   if (dir < 0)
   {
-    ifnot (any(kw == kw_a))
-      verror("not in a line with any of keywords, \"%s\"", strjoin(kw_a, ", "));
+    ifnot (any(kw == kws_end))
+      verror("not in a line with any of keywords, \"%s\"", strjoin(kws_end, ", "));
 
     move = &up;
-    kw_a = kws;
+    kws_end = kws_beg;
   }
-  else ifnot (any(kw == kws))
-    verror("not in a line with any of keywords, \"%s\"", strjoin(kws, ", "));
+  else ifnot (any(kw == kws_beg))
+    verror("not in a line with any of keywords, \"%s\"", strjoin(kws_beg, ", "));
 
   bol_skip_white();
   col = what_column();
@@ -418,7 +424,7 @@ private define lua_goto_level(dir)
   {
     if (lua_re_match_line("^\\h*$")) continue;
     (kw,) = lua_get_kw();
-    if (any(kw == kw_a))
+    if (any(kw == kws_end))
     {
       bol_skip_white();
       if (col == what_column()) break;
@@ -436,9 +442,19 @@ define lua_goto_end_of_level()
   lua_goto_level(1);
 }
 
+define lua_electric_right_brace()
+{
+  insert("}");
+
+  if (lua_re_match_line("^\\h*}\\h*$"))
+    lua_indent_line();
+}
+
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 undefinekey_reserved ("x", Mode);
 definekey_reserved ("lua_exec_region_or_buffer", "x", Mode);
+undefinekey("}", Mode);
+definekey("lua_electric_right_brace", "}", Mode);
 
 define lua_mode()
 {
