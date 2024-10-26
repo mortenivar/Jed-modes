@@ -118,15 +118,30 @@ dumped in your home directory.
 In your ~/.jedrc, insert:
 
    variable Newl_Delim;
+   variable Extended_Wordchars;
 
    define lua_mode_hook()
    {
      Newl_Delim = "\t";
+     Extended_Wordchars = ".:";
      init_tabcomplete();
    }
 
 Setting the Newl_Delim variable to the <tab> character, "\t", is necessary
-to format the help strings from the completion file correctly.
+to format the help strings from the completion file correctly. The dot and
+colon in the Extended_Wordchars variable ensures that completion works for
+targets like "string.reverse" or "file:read".
+
+
+                                   Issues:
+
+
+It is not possible in Jed to define a string using string begin and end
+delimiters, spanning multiple lines. In lua, a string enclosed in double
+brackets, like [[string]], is therefore not correctly highlighted as a
+string. I have used a comment syntax for it instead, which is not optimal,
+but it ensures that such strings do not affect the identation.
+
 
 Send suggestions or bug reports to: mortenbo at hotmail dot com
 
