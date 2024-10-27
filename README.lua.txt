@@ -26,6 +26,9 @@ it has the following facilities:
      It only works with the terminal version of Jed.
 
    - Jumping up and down between keyword levels.
+   
+   - Color highlighting of code lines containing errors/warnings if
+     the luacheck program is installed.
 
 
                                 Installation:
@@ -55,19 +58,23 @@ it should respond with
    loading /home/<user>/.local/share/jed/myjedlib/lua.sl
    ...
 
+
                                 Configuration:
 
-There are two user defined variables that you may set in your ~/.jedrc:
+
+There are three user defined variables that you may set in your ~/.jedrc,
+shown here with their default values:
 
    variable Lua_Indent_Default = 2;
    variable Lua_Expand_Kw_Syntax = 1;
+   variable Luacheck_Cmd_Opts = "--no-color --no-global --no-unused --codes";
 
-The first variable sets the default number of spaces per indentation level.
-It defaults to 2.
+The first variable, Lua_Indent_Default, sets the default number of spaces
+per indentation level. It defaults to 2.
 
-The second variable enables expansion to the full syntax of a conditional or
-looping keyword when you type <enter> after it. If you type if<enter>, it
-will expand to
+The second variable, Lua_Expand_Kw_Syntax, enables expansion to the full
+syntax of a conditional or looping keyword when you type <enter> after it.
+If you type if<enter>, it will expand to
 
   if  then
 
@@ -77,27 +84,56 @@ with the editing point being between "if" and "then".
 
 It defaults to 1, which means enabled.
 
+The third variable, Luacheck_Cmd_Opts, sets the options to the luacheck
+program when checking the buffer for errors/warnings. The "--no-color"
+option should always be retained, otherwise there will be ansi color codes
+in the output.
+
+
+                  Error checking with the luacheck program:
+
+
+If the luacheck program is installed, you may check the buffer for
+errors/warnings by having the offending lines of code colored. You may then
+jump between the lines and see the error message printed in the message
+area. Once you have corrected the code, run the function again to remove the
+line coloring.
+
 
                               Key definitions:
 
 
 The following keys are defined:
 
-<enter>    - indents the current line and puts editing point in an indented
-             position on the new line. If <enter> is pressed after one of
-             the following keywords
+<enter>         - indents the current line and puts editing point in an indented
+                  position on the new line. If <enter> is pressed after one of
+                  the following keywords
 
-               if, elseif, for, while, repeat, function
+                    if, elseif, for, while, repeat, function
 
-             it will expand them to their full syntax, if the user defined
-             variable, Lua_Expand_Kw_Syntax, is set to '1'.
+                  it will expand them to their full syntax, if the user defined
+                  variable, Lua_Expand_Kw_Syntax, is set to '1'.
 
-<ctrl>-c x - will execute the code in a region or whole buffer and show the
-             output in an interactive lua window. Exit with <ctrl>-d
-             It only works with the terminal version of Jed, not Xjed.
+<ctrl>-c x      - will execute the code in a region or whole buffer and show the
+                  output in an interactive lua window. Exit with <ctrl>-d
+                  It only works with the terminal version of Jed, not Xjed.
 
-<tab>      - will indent the current line. If a region is visibly marked, that
-             whole region will be indented.
+<ctrl>-c C      - will index and color lines in the buffer, identified by
+                  luacheck as having errors/warnings.
+
+<tab>           - will indent the current line. If a region is visibly marked, that
+                  whole region will be indented.
+
+<shift>-<down>  - will jump to the next line, identified by luacheck as
+                  having an error or warning. The editing point is moved to
+                  the start column of the error/warning.
+
+<shift>-<up>    - will jump to the previous line, identified by luacheck as
+                  having an error or warning. The editing point is moved to
+                  the start column of the error/warning.
+
+
+   (Note that that the <shift>-<up/down> keys are not guaranteed to work.)
 
 Whatever keys you have defined for moving a paragraph up or down, will jump
 up or down between keyword levels. If you are on a line with a looping or
@@ -105,6 +141,8 @@ conditional keyword or the delimiters, '{' and '}', the forward_paragraph()
 function will jump to the matching 'end' or '}' keyword and vice versa with
 the backward_paragraph() function. Note that it _requires_ the file to be
 correctly indented!
+
+You may access some of these functions in the mode menu with F10 -> Mode
 
 
                     Using with the tabcomplete extension:
@@ -136,12 +174,10 @@ targets like "string.reverse" or "file:read".
                                    Issues:
 
 
-It is not possible in Jed to define a string using string begin and end
-delimiters, spanning multiple lines. In lua, a string enclosed in double
-brackets, like [[string]], is therefore not correctly highlighted as a
-string. I have used a comment syntax for it instead, which is not optimal,
-but it ensures that such strings do not affect the identation.
-
+It is not possible to define a string using string begin and end delimiters
+with the define_syntax() function in Jed. In lua, a string enclosed in
+double brackets, like [[string]], is therefore not correctly highlighted as
+a string.
 
 Send suggestions or bug reports to: mortenbo at hotmail dot com
 
