@@ -1,9 +1,10 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.1.1 (2024/10/26)
+% Version = 0.2.0 (2024/10/27)
 
 require("pcre");
+require("keydefs");
 autoload("add_keywords", "syntax");
 
 % The default number of spaces per indentation level
@@ -12,6 +13,10 @@ custom_variable ("Lua_Indent_Default", 2);
 % Typing <enter> after a conditional or looping keyword will expand to
 % the full syntax of the keyword.
 custom_variable ("Lua_Expand_Kw_Syntax", 1);
+
+% The options to the luacheck command. "--no-color" should never be
+% removed, otherwise there will be ansi color codes in the output.
+custom_variable ("Luacheck_Cmd_Opts", "--no-color --no-global --no-unused --codes");
 
 private variable Mode = "Lua";
 private variable Syntax_Table = Mode;
@@ -98,7 +103,6 @@ private define lua_setup_syntax()
   create_syntax_table(Syntax_Table);
   define_syntax ("--", "", '%', Syntax_Table); % comments
   define_syntax ("--[[", "]]", '%', Syntax_Table); % comments
-  define_syntax ("[[", "]]", '%', Syntax_Table); % comment but should have been a string!
   define_syntax("([{", ")]}", '(', Syntax_Table);
   define_syntax('"', '"', Syntax_Table);
   define_syntax('`', '"', Syntax_Table);
@@ -266,6 +270,9 @@ private define lua_get_indentation()
   if (this_kw == "}{") this_kw = "}";
   if (prev_kw == "}{") prev_kw = "{";
 
+  if (prev_kw == NULL)
+    return 0;
+
   if (this_kw == "}")
     return lua_find_col_matching_delim('}');
 
@@ -366,8 +373,12 @@ define lua_exec_region_or_buffer()
     throw RunTimeError, "only works in a terminal, sorry";
 
   variable pager = search_path_for_file(getenv("PATH"), "most");
-  variable tmpfile = "/tmp/lua_exec_region.lua";
-  variable err_file = "/tmp/lua_exec_region.err";
+  variable tmpfile = make_tmp_file("/tmp/lua_exec");
+  variable err_file = make_tmp_file("/tmp/lua_exec_err");
+  variable lua = search_path_for_file(getenv("PATH"), "lua");
+
+  if (lua == NULL)
+    throw RunTimeError, "lua not found";
 
   if (pager == NULL)
   {
@@ -389,11 +400,120 @@ define lua_exec_region_or_buffer()
     pop_spot();
   }
 
-  if (0 != run_program("clear && lua -i $tmpfile 2>$err_file"$))
+  try
   {
-    if (0 != run_program("$pager $err_file"$))
-      throw RunTimeError, "execution failed";
+    if (0 != run_program("clear && $lua -i $tmpfile 2>$err_file"$))
+    {
+      if (0 != run_program("$pager $err_file"$))
+        throw RunTimeError, "execution failed";
+    }
   }
+  finally
+  {
+    remove(tmpfile);
+    remove(err_file);
+  }
+}
+
+private variable Luacheck_Lines = Int_Type[0];
+private variable Luacheck_Linenos = Int_Type[0];
+private variable Luacheck_Err_Cols = Int_Type[0];
+private variable Luacheck_Error_Color = color_number("preprocess");
+
+% Reset the shellcheck error index and remove line coloring.
+private define lua_luacheck_reset()
+{
+  push_spot_bob();
+
+  do
+    if (get_line_color == Luacheck_Error_Color)
+      set_line_color(0);
+  while (down(1));
+
+  pop_spot();
+  Luacheck_Lines = Int_Type[0];
+  Luacheck_Linenos = Int_Type[0];
+  Luacheck_Err_Cols = Int_Type[0];
+  call("redraw");
+}
+
+private define lua_switch_buffer_hook (old_buffer)
+{
+  variable mode;
+  (mode,) = what_mode();
+
+  if (mode == "Lua")
+    lua_luacheck_reset();
+}
+add_to_hook ("_jed_switch_active_buffer_hooks", &lua_switch_buffer_hook);
+
+define lua_luacheck_buffer()
+{
+  variable luacheck = search_path_for_file(getenv("PATH"), "luacheck");
+  variable line, col, lineno, lineno_col, fp, cmd;
+  variable tmpfile = make_tmp_file("/tmp/luacheck_tmpfile");
+
+  if (luacheck == NULL)
+    throw RunTimeError, "luacheck program not found";
+
+  lua_luacheck_reset();
+  push_spot_bob(); push_mark_eob();
+  () = write_string_to_file(bufsubstr(), tmpfile);
+  pop_spot();
+  cmd = "$luacheck $Luacheck_Cmd_Opts $tmpfile"$;
+  flush("Indexing luacheck errors/warnings ...");
+  fp = popen (cmd, "r");
+  Luacheck_Lines = fgetslines(fp);
+  () = pclose (fp);
+  () = delete_file(tmpfile);
+  Luacheck_Lines = Luacheck_Lines[where(array_map(Int_Type, &string_match,
+                                                  Luacheck_Lines,
+                                                  "\\d+:\\d+", 1))];
+  ifnot (length(Luacheck_Lines))
+    return flush("luacheck reported no errors or warnings");
+
+  push_spot();
+
+  foreach line (Luacheck_Lines)
+  {
+    lineno_col = pcre_matches(":(\\d+):(\\d+)", line);
+    lineno = integer(lineno_col[1]);
+    col = integer(lineno_col[2]);
+    goto_line(lineno);
+    set_line_color(Luacheck_Error_Color);
+    Luacheck_Linenos = [Luacheck_Linenos, lineno];
+    Luacheck_Err_Cols = [Luacheck_Err_Cols, col];
+  }
+
+  pop_spot();
+  call("redraw");
+  vmessage("found %d lines with issues", length(Luacheck_Lines));
+}
+
+% Go to next or previous line with errors relative to the editing
+% point identified by luacheck and show the error message from
+% luacheck in the message area.
+define lua_goto_next_or_prev_luacheck_entry(dir)
+{
+  variable i, err_col, err_lineno, err_msg, this_line = what_line();
+
+  try
+  {
+    if (dir < 0) % find index position of previous error line
+      i = where(this_line > Luacheck_Linenos)[-1];
+    else
+      i = where(this_line < Luacheck_Linenos)[0];
+
+    err_lineno = Luacheck_Linenos[i];
+    err_col = Luacheck_Err_Cols[i];
+    goto_line(err_lineno);
+    goto_column(err_col);
+    err_msg = Luacheck_Lines[i];
+    err_msg = pcre_matches("^.*?:(.*)", err_msg)[1]; % omit file name
+    call("redraw");
+    flush(err_msg);
+  }
+  catch IndexError: flush("no luacheck errors/warnings beyond this line");
 }
 
 % Move up and down between keyword levels.
@@ -453,8 +573,22 @@ define lua_electric_right_brace()
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 undefinekey_reserved ("x", Mode);
 definekey_reserved ("lua_exec_region_or_buffer", "x", Mode);
+undefinekey_reserved ("C", Mode);
+definekey_reserved ("lua_luacheck_buffer", "C", Mode);
 undefinekey("}", Mode);
 definekey("lua_electric_right_brace", "}", Mode);
+undefinekey (Key_Shift_Up, Mode);
+undefinekey (Key_Shift_Down, Mode);
+definekey ("lua_goto_next_or_prev_luacheck_entry\(-1\)", Key_Shift_Up, Mode);
+definekey ("lua_goto_next_or_prev_luacheck_entry\(1\)", Key_Shift_Down, Mode);
+
+private define lua_menu(menu)
+{
+  menu_append_item (menu, "Check Buffer With Luacheck", "lua_luacheck_buffer");
+  menu_append_item (menu, "Go to Next Luacheck Error Line", "lua_goto_next_or_prev_luacheck_entry\(1\)");
+  menu_append_item (menu, "Go to Previous Luacheck Error Line", "lua_goto_next_or_prev_luacheck_entry\(-1\)");
+  menu_append_item (menu, "Execute Code in Region or Buffer", "lua_exec_region_or_buffer");
+}
 
 define lua_mode()
 {
@@ -464,6 +598,7 @@ define lua_mode()
   use_syntax_table(Mode);
   set_comment_info(Mode, "--", "", 0x01);
   set_mode(Mode, 4);
+  mode_set_mode_info (Mode, "init_mode_menu", &lua_menu);
   use_keymap (Mode);
   set_buffer_hook("newline_indent_hook", "lua_newline_and_indent");
   set_buffer_hook("indent_hook", "lua_indent_region_or_line");
