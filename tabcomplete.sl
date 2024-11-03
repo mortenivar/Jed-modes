@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.5 2024/10/20
+% Version 0.9.6 2024/11/03
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -560,9 +560,6 @@ define tabcomplete ()
 
   completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
   completions = completions[array_sort(completions, &cmp_fun)];
-
-  if (length(completions) == 0 || stub + completions[-1] == stub)
-    return flush("no completions");
 
   % This pops up a buffer with a menu of all completion candidates if
   % the custom variable, Use_Completion_Menu = 1
