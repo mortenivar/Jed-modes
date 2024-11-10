@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.2.0 (2024/10/27)
+% Version = 0.2.1 (2024/11/10)
 
 require("pcre");
 require("keydefs");
@@ -56,7 +56,7 @@ private variable Lua_Funcs =
 
 % Keywords that begin a block or sub-block
 private variable Lua_Block_Beg_Kws =
-  ["function","if","else","elseif","for","while","do","repeat","{","}{"];
+  ["function","if","else","elseif","for","while","do","repeat","then","{","}{"];
 
 % Keywords that end a block or sub-block
 private variable Lua_Block_End_Kws = ["end","else","elseif","until","}"];
@@ -65,7 +65,7 @@ private variable Lua_Block_End_Kws = ["end","else","elseif","until","}"];
 % keywords, one conditional/looping keyword and/or the 'end' keyword
 % if present in the same line.
 private variable Pat = "\\b(function|if|else|elseif|for|while|until|repeat|" +
-                       "do|end)\\b.*?(\\b(end|return)\\b[ ,;()}]*)?$";
+                       "do|then|end)\\b.*?(\\b(end|return)\\b[ ,;()}]*)?$";
 
 % Associative array to insert and expand syntaxes for its keys
 Lua_Kw_Expand_Hash["if"] = " @ then\n \nend";
@@ -282,7 +282,7 @@ private define lua_get_indentation()
   if (any(this_kw == ["end","until"]) && any(prev_kw == ["end","until","{","}"]))
     return prev_kw_col - Lua_Indent_Default;
 
-  if (any(this_kw == ["else","elseif","until","do"]))
+  if (any(this_kw == ["else","elseif","until","do","then"]))
     return prev_kw_col;
 
   if (this_kw == "end" && any(prev_kw == Lua_Block_Beg_Kws))
@@ -308,10 +308,7 @@ private define lua_indent_line()
 
 private define _lua_newline_and_indent()
 {
-  bskip_white();
-  push_spot(); lua_indent_line(); pop_spot();
-  insert("\n");
-  lua_indent_line();
+  bskip_white(); insert("\n"); lua_indent_line();
 }
 
 define lua_indent_region_or_line()
@@ -596,7 +593,7 @@ define lua_mode()
   add_kws_to_table(Lua_Reserved_Keywords, Syntax_Table, 0);
   add_kws_to_table(Lua_Funcs, Mode, 1);
   use_syntax_table(Mode);
-  set_comment_info(Mode, "--", "", 0x01);
+  set_comment_info(Mode, "-- ", "", 0x01);
   set_mode(Mode, 4);
   mode_set_mode_info (Mode, "init_mode_menu", &lua_menu);
   use_keymap (Mode);
