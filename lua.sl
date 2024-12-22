@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.2.2 (2024/11/17)
+% Version = 0.2.3 (2024/12/22)
 
 require("pcre");
 require("keydefs");
@@ -303,12 +303,15 @@ private define lua_indent_line()
 
   if (indentation == NULL) return skip_white();
 
-  bol(); trim(); insert_spaces(indentation); eol();
+  bol(); trim(); insert_spaces(indentation);
 }
 
 private define _lua_newline_and_indent()
 {
-  bskip_white(); lua_indent_line(); insert("\n"); lua_indent_line();
+  bskip_white();
+  push_spot(); lua_indent_line(); pop_spot();
+  insert("\n");
+  lua_indent_line();
 }
 
 define lua_indent_region_or_line()
@@ -330,7 +333,7 @@ define lua_indent_region_or_line()
     i++;
   }
   while (down(1) and what_line != reg_endline);
-  flush("indent region done");
+  clear_message();
 }
 
 % Insert and expand a code block
