@@ -43,7 +43,9 @@ line to your ~/.jedrc:
     init_aspell ();
   }
 
-which will load the mode whenever you edit a text file.
+which will load the mode whenever you edit a text file, or load it with
+
+  alt-x init_aspell
 
 Also in ~/.jedrc, you may set some customizable variables, exemplified here:
 with their default values
