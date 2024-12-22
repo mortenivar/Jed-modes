@@ -11,11 +11,13 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.8.9
+%% Version: 0.9.0, 2024-12-22
 %%
 %}}}
 %{{{ Requires
 require("keydefs");
+require("process");
+require("pcre");
 %}}}
 %{{{ Custom variables
 % A default for the spelling dictionary to use
@@ -54,10 +56,11 @@ custom_variable ("Aspell_Use_Tabcompletion", 0);
 custom_variable ("Aspell_Accept_Compound_Words", 0);
 
 % The algorithm for Aspell's suggestions for correcting a misspelled
-% word. Possible values are: "ultra", "fast", "normal", "slow", "bad-spellers"
-% Take a look at http://aspell.net/test/cur to see each mode performs in
-% a test. But results will probably vary with the language, anyway. So
-% it may be a good idea to try with different values
+% word. Possible values are: "ultra", "fast", "normal", "slow",
+% "bad-spellers" Take a look at http://aspell.net/test/cur to see how
+% each mode performs in a test. But results will probably vary with
+% the language, anyway. So it may be a good idea to try with different
+% values
 custom_variable ("Aspell_Suggestion_Mode", "fast");
 
 % Whether or not to spell check the buffer immediately after loading it
@@ -81,24 +84,24 @@ if (strlen (expand_jedlib_file ("tabcomplete.sl")))
 %{{{ Prototypes
 define aspell_select_dictionary ();
 define add_word_to_personal_wordlist ();
+define aspell_toggle_flyspell();
 public define aspell_buffer();
 %}}}
 %{{{ Private variables
 private variable
  Aspell_Pid = -1,
  Word = "",
+ Mode_Init = 1, % indicates if minor mode is loaded 
  Aspell_Typo_Table = "",
  Aspell_Mode = "",
- Aspell_Lang = "",
- Aspell_Run_Together_Switch,
+ Aspell_Run_Together_Switch = "-B",
  Aspell_Replacement_Wordlist = "";
-
 %}}}
 %{{{ Private functions
 % Return the word under or before the cursor. An adapted version for this use
 private define _aspell_get_word (delete)
 {
-  variable wchars = "\a"R + Aspell_Extended_Wordchars;
+  variable wchars = "\w"R + Aspell_Extended_Wordchars;
 
   push_spot ();
   bskip_chars (wchars); push_mark (); skip_chars (wchars);
@@ -109,6 +112,16 @@ private define _aspell_get_word (delete)
     strtrim (bufsubstr ());
 
   pop_spot ();
+}
+
+private define aspell_get_word ()
+{
+  return _aspell_get_word (0);
+}
+
+private define aspell_delete_word ()
+{
+  return _aspell_get_word (1);
 }
 
 % Returns the key sequence from the getkey() function as a string.
@@ -124,27 +137,41 @@ private define get_keysequence ()
 private define buf_as_words_array ()
 {
   push_spot_bob (); push_mark_eob ();
-  strtrim (strtok (bufsubstr (), "^\\a"));
+  strtrim (strtok (bufsubstr (), "^\\w"));
   pop_spot ();
 }
 
-define aspell_get_word ()
+% Use the new_process() function for some IO instead of popen().
+private define aspell_popen(cmd)
 {
-  return _aspell_get_word (0);
-}
+  variable obj, w, lines = [""], err, msg = "";
 
-private define aspell_delete_word ()
-{
-  return _aspell_get_word (1);
+  obj = new_process(cmd ;; __qualifiers); % pass all qualifiers
+  w = obj.wait(); % get some feedback from the process, including exit status
+
+  try
+  {
+    lines = fgetslines(obj.fp1; trim=3); % collect the output in an array of lines
+    () = fclose (obj.fp1);
+
+    if (w.exit_status != 0) % process failed
+    {
+      () = fgets(&err, obj.fp2); % get first line of error message
+
+      if (length(err)) % prioritize showing aspell's own error message
+        throw RunTimeError, sprintf("%s failed", strtrim(strjoin(err, "")));
+      else
+        throw RunTimeError, sprintf("%s failed", strjoin(cmd, " "));
+    }
+  }
+  catch InvalidParmError;
+  finally: return lines;
 }
 
 % Return the installed aspell dictionaries
 private define get_aspell_dicts ()
 {
-  variable dicts, fp;
-  fp = popen("aspell dump dicts", "r");
-  dicts = strtrim(fgetslines(fp));
-  () = fclose(fp);
+  variable dicts = aspell_popen(["aspell", "dump", "dicts"]; write={1,2});
   dicts = dicts[array_sort (strlen (dicts))];
 
   ifnot (length (dicts))
@@ -180,23 +207,24 @@ private define aspell_set_dictionary_from_env ()
   }
 }
 
+private define aspell_get_dict()
+{
+  ifnot (strlen(Aspell_Dict))
+    aspell_set_dictionary_from_env(); % "Aspell_Dict" is set here
+
+  variable dict = Aspell_Dict;
+
+  if (blocal_var_exists("aspell_dict"))
+    dict = get_blocal_var("aspell_dict");
+
+  return dict;
+}
+
 % Return the word list used for completion with tabcomplete
 private define aspell_set_tabcompletion_wordlist ()
 {
-  variable dict = get_blocal_var("aspell_dict");
+  variable dict = aspell_get_dict();
   return expand_filename ("~/.tabcomplete_$dict"$);
-}
-
-% Is the chosen Aspell dictionary installed?
-private define aspell_verify_dict ()
-{
-  variable dict = get_blocal_var("aspell_dict");
-
-  ifnot (strlen (dict))
-    return aspell_select_dictionary ();
-
-  ifnot (is_list_element (get_aspell_dicts, dict, ','))
-    throw RunTimeError, "aspell dictionary \"$dict\" not found"$;
 }
 
 % The syntax table for misspelled words
@@ -208,29 +236,34 @@ private define aspell_setup_syntax (tbl)
     create_syntax_table(tbl);
 
   Aspell_Typo_Table = tbl;
+
+  if (blocal_var_exists("typo_table"))
+    set_blocal_var(Aspell_Typo_Table, "typo_table");
+
   (, bg) = get_color ("normal"); % get the current background color
   set_color ("keyword", Aspell_Typo_Color, bg);
-  define_syntax ("a-zA-Z" + Aspell_Extended_Wordchars, 'w', Aspell_Typo_Table);
+  define_syntax ("${Aspell_Extended_Wordchars}a-zA-Z0-9"$, 'w', Aspell_Typo_Table);
   use_syntax_table (Aspell_Typo_Table);
 }
 
 % Give some information about some states of the mode in the status line
 private define aspell_set_status_line ()
 {
-  variable dict = get_blocal_var("aspell_dict");
+  variable status_str = "", dict = aspell_get_dict();
 
-  if (Aspell_Flyspell && Aspell_Use_Tabcompletion)
-    set_status_line (strreplace (Status_Line_String, "%m",
-                                 "%m aspell[$dict|fly|tabcomplete]"$), 0);
-  else if (0 == Aspell_Flyspell && Aspell_Use_Tabcompletion)
-    set_status_line (strreplace (Status_Line_String, "%m",
-                                 "%m aspell[$dict|tabcomplete]"$), 0);
-  else if (Aspell_Flyspell && 0 == Aspell_Use_Tabcompletion)
-    set_status_line (strreplace (Status_Line_String, "%m",
-                                 "%m aspell[$dict|fly]"$), 0);
-  else
-    set_status_line (strreplace (Status_Line_String, "%m",
-                                 "%m aspell[$dict]"$), 0);
+  if (blocal_var_exists("aspell_flyspell"))
+    Aspell_Flyspell = get_blocal_var("aspell_flyspell");
+  
+  if (Aspell_Flyspell == 1 && Aspell_Use_Tabcompletion == 1)
+    status_str = "%m aspell[$dict|fly|tabcomplete]"$;
+  if (Aspell_Flyspell == 1 && Aspell_Use_Tabcompletion == 0)
+    status_str = "%m aspell[$dict|fly]"$;
+  if (Aspell_Flyspell == 0 && Aspell_Use_Tabcompletion == 1)
+    status_str = "%m aspell[$dict|tabcomplete]"$;
+  if (Aspell_Flyspell == 0 && Aspell_Use_Tabcompletion == 0)
+    status_str = "%m aspell[$dict]"$;
+
+  set_status_line (strreplace (Status_Line_String, "%m", status_str), 0);
 }
 
 % Set the aspell checking mode for various types of files.
@@ -301,15 +334,30 @@ private define before_key_hook (fun)
     aspell_check_word ();
 }
 
+private define aspell_signal_handler(pid, flags, status)
+{
+  variable msg;
+
+  msg = aprocess_stringify_status (pid, flags, status);
+
+  if (is_substr(msg, "exit")) % aspell process failed
+  {
+    set_blocal_var(0, "aspell_flyspell");
+    Aspell_Flyspell = get_blocal_var("aspell_flyspell");
+    remove_from_hook ("_jed_before_key_hooks", &before_key_hook);
+    throw RunTimeError, "could not start flyspell process, flyspelling disabled";
+  }
+}
+
 % The initialization of the aspell flyspelling process. It is
-% restarted if it is already running.
+% restarted if it is already running. If it were better to use the
+% new_process() function in lieu of open_process() and you know how
+% to do it, please drop me line.
 private define aspell_start_flyspell_process ()
 {
-  variable dict = get_blocal_var("aspell_dict");
   variable buf = whatbuf (), spellbuf = " *aspell*";
 
-  ifnot (strlen (dict)) return;
-
+  Aspell_Dict = aspell_get_dict();
   setbuf (spellbuf);
 
   ifnot (Aspell_Pid == -1)
@@ -318,30 +366,32 @@ private define aspell_start_flyspell_process ()
   if (strlen (Aspell_Mode))
     Aspell_Pid = open_process ("aspell", Aspell_Mode,
                                Aspell_Run_Together_Switch,
-                               "-d", dict, "-a", "-c", 6);
+                               "-d", Aspell_Dict, "-a", 5);
   else
     Aspell_Pid = open_process ("aspell", Aspell_Run_Together_Switch,
-                               "-d", dict, "-a", "-c", 5);
+                               "-d", Aspell_Dict, "-a", 4);
 
+  set_process (Aspell_Pid, "signal", &aspell_signal_handler);
   set_process (Aspell_Pid, "output", &aspell_highlight_misspelled);
   process_query_at_exit (Aspell_Pid, 0);
-  bury_buffer (spellbuf);
   setbuf (buf);
   aspell_set_status_line ();
   add_to_hook ("_jed_before_key_hooks", &before_key_hook);
 }
 
-define aspell_switch_buffer_hook(oldbuf)
+private define aspell_switch_buffer_hook(oldbuf)
 {
-  ifnot (blocal_var_exists("aspell_dict"))
-    return remove_from_hook("_jed_before_key_hooks", &before_key_hook);
-  
   Aspell_Typo_Table = whatbuf();
   aspell_setup_syntax(Aspell_Typo_Table);
-  aspell_start_flyspell_process();
+
+  if (blocal_var_exists("aspell_flyspell"))
+  {
+    if (1 == get_blocal_var("aspell_flyspell"))
+      aspell_start_flyspell_process();
+  }
+  else
+    remove_from_hook("_jed_before_key_hooks", &before_key_hook);
 }
-if (Aspell_Flyspell)
-  add_to_hook("_jed_switch_active_buffer_hooks", &aspell_switch_buffer_hook);
 
 % Pick an entry from a menu of at most 10 entries in the message area
 % and return it.
@@ -411,10 +461,9 @@ private define aspell_auto_replace_word ();
 private define aspell_auto_replace_word (fun)
 {
   ifnot (is_substr (" \r", LASTKEY)) return;
-  ifnot (blocal_var_exists("aspell_dict")) return;
 
   variable repl_word = "", word = "";
-  variable dict = get_blocal_var("aspell_dict");
+  variable dict = aspell_get_dict();
 
   Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$dict"$);
 
@@ -432,15 +481,12 @@ private define aspell_auto_replace_word (fun)
   flush ("\"$word\" auto corrected to \"$repl_word\""$);
 }
 
-if (Aspell_Use_Replacement_Wordlist)
- append_to_hook ("_jed_before_key_hooks", &aspell_auto_replace_word);
-
 % Adds the word before or under the editing point to the user's personal
 % aspell dictionary. Remove the coloring of the word on the same token.
 define add_word_to_personal_wordlist ()
 {
   variable word = aspell_get_word ();
-  variable dict = get_blocal_var("aspell_dict");
+  variable dict = aspell_get_dict();
   
   () = system ("echo \"*${word}\n#\" | aspell -a -d $dict >/dev/null"$);
   () = remove_keywords (Aspell_Typo_Table, word, strbytelen (word), 0);
@@ -460,7 +506,7 @@ define aspell_remove_word_highligtning()
 define aspell_set_suggestion_mode()
 {
   ungetkey('\t');
-  Aspell_Suggestion_Mode = read_with_completion ("ultra,fast,normal,slow,bad-spellers",
+  Aspell_Suggestion_Mode = read_with_completion ("ultra,fast,normal,slow, bad-spellers",
                                                  "Choose suggestion mode:",
                                                  Aspell_Suggestion_Mode, "", 's');
 }
@@ -468,18 +514,19 @@ define aspell_set_suggestion_mode()
 % Use aspell's suggestions to replace a misspelling.
 define aspell_suggest_correction ()
 {
-  variable fp, ch, word = "", out = "", suggs, i = 0, sugg;
-  variable dict = get_blocal_var("aspell_dict");
-  variable cmd = "aspell --sug-mode=$Aspell_Suggestion_Mode $Aspell_Run_Together_Switch "$ +
-                 "-d $dict -a -c 2>/dev/null"$;
+  variable dict, ch, word, out = "", suggs, i = 0, sugg;
+  variable wordfile = "/tmp/aspell_sugg_word";
 
+  dict = aspell_get_dict();
   word = strtrim (aspell_get_word ());
-
   ifnot (strlen (word)) return;
+  () = write_string_to_file(word, wordfile);
+  out = aspell_popen(["aspell", "--sug-mode=$Aspell_Suggestion_Mode"$,
+                     Aspell_Run_Together_Switch, "-d", dict, "-a"]; write={1,2},
+                     stdin=wordfile);
 
-  fp = popen ("echo $word | $cmd"$, "r");
-  out = strtrim(strjoin(fgetslines(fp)));
-  () = fclose(fp);
+  out = strtrim(strjoin(out));
+  () = remove(wordfile);
 
   try
   {
@@ -522,23 +569,29 @@ define aspell_suggest_correction ()
 define aspell_select_dictionary ()
 {
   variable aspell_dicts = get_aspell_dicts ();
-  variable cur_dict = get_blocal_var("aspell_dict");
+  variable cur_dict = aspell_get_dict();
   variable bg, new_dict;
 
   ungetkey('\t');
-  new_dict = read_with_completion (aspell_dicts, "[Aspell] Select language:",
-                                      cur_dict, "", 's');
-  aspell_verify_dict ();
-  set_blocal_var(new_dict, "aspell_dict");
+  Aspell_Dict = read_with_completion (aspell_dicts, "[Aspell] Select language:",
+                                      Aspell_Dict, "", 's');
 
-  if (Aspell_Flyspell)
-    aspell_start_flyspell_process ();
+  ifnot (is_list_element (get_aspell_dicts, Aspell_Dict, ','))
+    throw RunTimeError, "dictionary, \"$Aspell_Dict\" not installed"$;
+
+  set_blocal_var(Aspell_Dict, "aspell_dict");
+
+  if (blocal_var_exists("aspell_flyspell"))
+  {
+    if (1 == get_blocal_var("aspell_flyspell"))
+      aspell_start_flyspell_process ();
+  }
 
   % load the corresponding completion file
   if (Aspell_Use_Tabcompletion)
     load_tabcompletion ();
 
-  Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$new_dict"$);
+  Aspell_Replacement_Wordlist = expand_filename ("~/.aspell_repl.$Aspell_Dict"$);
   aspell_set_status_line();
   aspell_buffer ();
 }
@@ -546,25 +599,35 @@ define aspell_select_dictionary ()
 % Toggle flyspelling on or off
 define aspell_toggle_flyspell ()
 {
-  Aspell_Flyspell = not (Aspell_Flyspell);
+  ifnot (blocal_var_exists("aspell_flyspell"))
+    return flush("flyspelling not enabled for this buffer");
 
-  ifnot (Aspell_Flyspell)
+  Aspell_Flyspell = not get_blocal_var("aspell_flyspell");
+  set_blocal_var(Aspell_Flyspell, "aspell_flyspell");
+  Aspell_Flyspell = get_blocal_var("aspell_flyspell");
+  
+  if (0 == get_blocal_var("aspell_flyspell"))
   {
     kill_process (Aspell_Pid);
     Aspell_Pid = -1;
     remove_from_hook ("_jed_before_key_hooks", &before_key_hook);
+    create_syntax_table("");
+    use_syntax_table("");
   }
   else
+  {
     aspell_start_flyspell_process ();
+    use_syntax_table(Aspell_Typo_Table);
+  }
 
-  flush ("spell checking on the fly set to $Aspell_Flyspell"$);
+  vmessage ("spell checking on the fly set to %d", get_blocal_var("aspell_flyspell"));
   aspell_set_status_line ();
 }
 
 % Spell check a marked region.
 define aspell_flyspell_region()
 {
-  variable flyspell_state = Aspell_Flyspell;
+  variable flyspell_state = get_blocal_var("aspell_flyspell");
   variable words_n, i = 0;
   
   if (flyspell_state == 0)
@@ -596,41 +659,59 @@ define aspell_flyspell_region()
   pop_spot();
   flush("done");
   
-  if (Aspell_Flyspell != flyspell_state)
+  if (get_blocal_var("aspell_flyspell") != flyspell_state)
     aspell_toggle_flyspell();
 }
 
-% Spellcheck the whole buffer. This is rather efficient: First it
+% Spellcheck the whole buffer, without having to save the file
+% associated with it first. This is rather efficient: First it
 % produces a list of misspelled words with the "aspell list" command,
 % then groups those words together by size and feeds them to
-% add_keywords() size by size. This function may be used without loading
-% the entire minor mode.
+% add_keywords() size by size. This function may be used without
+% loading the entire minor mode.
 public define aspell_buffer ()
 {
+  if (NULL == search_path_for_file (getenv ("PATH"), "aspell"))
+    return flush ("aspell is not installed or not in $PATH");
+
   if (eobp() && bobp()) return;
+
   variable
     tmpfile = make_tmp_file ("aspell_buffer"),
     typo_table = whatbuf(),
-    dict = get_blocal_var("aspell_dict"),
-    cmd = "aspell list $Aspell_Mode $Aspell_Run_Together_Switch -d $dict <$tmpfile"$,
+    dict = aspell_get_dict(),
+    aspell_dicts = get_aspell_dicts (),
     misspelled_words_n = String_Type[0],
     misspelled_words = String_Type[0],
-    words_arr,
-    out = "",
-    fp,
+    typos_arr,
     i = 0;
 
+  % if minor mode is not loaded and this function is used on its own,
+  % then ask user for a dictionary the first time.
+  ifnot (blocal_var_exists("aspell_dict")) % mode is not loaded
+  {
+    create_blocal_var("aspell_dict");
+    create_blocal_var("misspelled_words");
+    dict = read_with_completion (aspell_dicts, "language?", dict, "", 's');
+    set_blocal_var(dict, "aspell_dict");
+    Mode_Init = 0;
+  }
+
+  Aspell_Dict = get_blocal_var("aspell_dict");
   flush(sprintf ("spell checking %s ...", whatbuf()));
   create_syntax_table(typo_table); % emties the existing one
   aspell_setup_syntax(typo_table);
-  out = strjoin (buf_as_words_array (), "\n");
-  () = write_string_to_file (out, tmpfile);
-  fp = popen (cmd, "r");
-  words_arr = strtrim (fgetslines (fp));
+  aspell_set_filter_mode();
+  push_spot_bob(); push_mark_eob();
+  () = write_string_to_file (bufsubstr(), tmpfile);
+  pop_spot();
+  typos_arr = aspell_popen(["aspell", "list", Aspell_Mode,
+                            Aspell_Run_Together_Switch, "-d", Aspell_Dict];
+                            write={1,2}, stdin=tmpfile);
+
   () = delete_file (tmpfile);
-  set_blocal_var(words_arr, "misspelled_words");
+  set_blocal_var(typos_arr, "misspelled_words");
   misspelled_words = get_blocal_var("misspelled_words");
-  () = fclose (fp);
 
   ifnot (length(misspelled_words))
     return flush("no spelling errors found");
@@ -645,6 +726,9 @@ public define aspell_buffer ()
     () = add_keywords (typo_table, misspelled_words_n, i, 0);
   }
 
+  if (Mode_Init == 1) % only set the status line if mode is loaded
+    aspell_set_status_line();
+
   call ("redraw");
 }
 
@@ -656,29 +740,34 @@ define aspell_goto_misspelled(dir)
   ifnot (length(get_blocal_var("misspelled_words")))
     return flush("you must spell check the buffer first");
 
-  if (Aspell_Show_Suggestions_Goto_Misspelled)
-    aspell_suggest_correction();
-
   variable misspelled_words = get_blocal_var("misspelled_words");
-  
-  if (dir < 0)
+
+  try
   {
-    while (not (bobp()))
+    if (dir < 0)
     {
-      bskip_word();
-      skip_non_word_chars();
-      if (any(aspell_get_word == misspelled_words)) return;
+      while (not (bobp()))
+      {
+        bskip_word();
+        skip_non_word_chars();
+        if (any(aspell_get_word == misspelled_words)) return;
+      }
+    }
+    else
+    {
+      do
+      {
+        skip_word();
+        skip_non_word_chars();
+        if (any(aspell_get_word == misspelled_words)) return;
+      }
+      while (not (eobp()));
     }
   }
-  else
+  finally:
   {
-    do
-    {
-      skip_word();
-      skip_non_word_chars();
-      if (any(aspell_get_word == misspelled_words)) return;
-    }
-    while (not (eobp()));
+    if (Aspell_Show_Suggestions_Goto_Misspelled)
+      aspell_suggest_correction();
   }
 }
 
@@ -727,21 +816,24 @@ define init_aspell ()
     set_blocal_var(Assoc_Type[String_Type], "checked_words");
   }
 
+  ifnot (blocal_var_exists("aspell_flyspell"))
+  {
+    create_blocal_var("aspell_flyspell");
+    set_blocal_var(Aspell_Flyspell, "aspell_flyspell");
+  }
+
   if (Aspell_Accept_Compound_Words)
-    Aspell_Run_Together_Switch = "-C";
+    Aspell_Run_Together_Switch = "-C"; % run together
   else
     Aspell_Run_Together_Switch = "-B";
 
-  define_word("\a"R + Aspell_Extended_Wordchars);
-  aspell_verify_dict ();
   aspell_set_filter_mode ();
   use_keymap(Mode);
-  Aspell_Typo_Table = "";
-  create_syntax_table(Aspell_Typo_Table);
-  aspell_setup_syntax (Aspell_Typo_Table);
+  aspell_setup_syntax ("");
   aspell_set_status_line ();
+  define_blocal_var("aspell_initialized", 1);
 
-  if (Aspell_Flyspell)
+  if (get_blocal_var("aspell_flyspell"))
     aspell_start_flyspell_process ();
 
   if ((1 == Aspell_Ask_Dictionary) || (0 == strlen (get_blocal_var("aspell_dict"))))
@@ -755,5 +847,13 @@ define init_aspell ()
 
   if (Aspell_Spellcheck_Buffer_On_Startup)
     aspell_buffer ();
+
+  if (Aspell_Use_Replacement_Wordlist)
+    append_to_hook ("_jed_before_key_hooks", &aspell_auto_replace_word);
+
+  if (1 == get_blocal_var("aspell_flyspell"))
+    add_to_hook("_jed_switch_active_buffer_hooks", &aspell_switch_buffer_hook);
+
+  Mode_Init = 1;
 }
 %}}}
