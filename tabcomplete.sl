@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.6 2024/11/03
+% Version 0.9.7 2024/12/22
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -59,6 +59,11 @@ custom_variable ("Sep_Fun_Par_With_Space", 1);
 % If set to '1', completion will be enabled at the minibuffer's
 % S-Lang> cli prompt
 custom_variable ("SLang_Completion_In_Minibuffer", 0);
+
+% Limit completion candidates to words of sizes greater than or
+% equal to value.
+custom_variable ("Minimum_Completion_Word_Size", 2);
+
 %}}}
 %{{{ Autoloads and evalfiles
 % In Debian, require.sl is in a separate package, slsh, which the user
@@ -477,6 +482,7 @@ private define format_and_insert_completion_menu(words_arr)
     % another at the designated column offset.
     _for i (0, rows_n-1, 1)
     {
+      ifnot (strlen(strtrim(strjoin(words_arr[i, *])))) continue;
       array_map(Void_Type, &vinsert, "%-${col_offset}s"$, words_arr[i, *]);
       insert("\n");
     }
@@ -503,14 +509,6 @@ private define sort_by_relevancy(str_arr, expr)
   return strs_sorted;
 }
 
-% A blooking_at_char() that may use character classes
-private define blooking_at_char(chars_set)
-{
-  push_spot(); bskip_white(); go_left_1();
-  not strlen(str_delete_chars(char(what_char()), chars_set));
-  pop_spot();
-}
-
 %}}}
 %{{{ User functions
 
@@ -534,21 +532,25 @@ define tabcomplete ()
 
   if (looking_at("\",")) return skip_chars("\",");
   if (looking_at(" =")) return skip_chars(" =");
-
-  ifnot (MINIBUFFER_ACTIVE)
-  {
-    if (markp()) return indent_region_or_line();
-
-    ifnot (blooking_at_char(Wordchars + Extended_Wordchars) &&
-          (isspace(what_char()) || eobp()) ||
-           looking_at(")"))
-      return indent_region_or_line();
-  }
+  if (markp()) return indent_region_or_line();
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
+  if (strlen(stub))
+  {
+    ifnot (re_looking_at("[ \t\n,\)]") || eobp())
+      return indent_region_or_line();
+  }
+  else
+    return indent_region_or_line();
+
   % get all words where stub forms the beginning of the words
   completion_words = Words [where (0 == strnbytecmp (stub, Words, strbytelen (stub)))];
+
+  % only return words of sizes greater than or equal to $Minimum_Completion_Word_Size
+  completion_words = completion_words[where(array_map(Int_Type, &strlen,
+                                            completion_words) >=
+                                            Minimum_Completion_Word_Size)];
 
   % include stub as a completion target if it has a syntax attached,
   % so that syntax can be expanded with space or enter. Otherwise show
@@ -563,43 +565,44 @@ define tabcomplete ()
 
   % This pops up a buffer with a menu of all completion candidates if
   % the custom variable, Use_Completion_Menu = 1
-  if (Use_Completion_Menu)
+  ifnot (MINIBUFFER_ACTIVE)
   {
-    if (MINIBUFFER_ACTIVE) return;
-
-    variable completed_words, I, entries, buf = whatbuf, mbuf = "***Completions***";
-
-    stub = strtrim (get_word ());
-    completed_words = array_map (String_Type, &strcat, stub, completions);
-    I = array_map (String_Type, &string, [0:length (completed_words)-1]);
-    entries = array_map (String_Type, &strcat, I, "|", completed_words);
-    pop2buf (mbuf);
-    format_and_insert_completion_menu(entries);
-    bob ();
-    set_buffer_modified_flag (0);
-    tabcomplete_fit_window();
-    update_sans_update_hook (1);
-    most_mode ();
-    keystr = get_keystr (7);
-    sw2buf (buf);
-
-    if (any (keystr == I))
+    if (Use_Completion_Menu)
     {
-      Completed_Word = completed_words[integer (keystr)];
-      bdelete_word ();
+      variable completed_words, I, entries, buf = whatbuf, mbuf = "***Completions***";
 
-      if (length (F[Completed_Word]) > 0)
+      stub = strtrim (get_word ());
+      completed_words = array_map (String_Type, &strcat, stub, completions);
+      I = array_map (String_Type, &string, [0:length (completed_words)-1]);
+      entries = array_map (String_Type, &strcat, I, "|", completed_words);
+      pop2buf (mbuf);
+      format_and_insert_completion_menu(entries);
+      bob ();
+      set_buffer_modified_flag (0);
+      tabcomplete_fit_window();
+      update_sans_update_hook (1);
+      most_mode ();
+      keystr = get_keystr (6);
+      sw2buf (buf);
+
+      if (any (keystr == I))
       {
-        syntax = F[Completed_Word][0];
-        insert_and_expand_construct (Completed_Word, syntax);
-      }
-      else
-        insert(Completed_Word);
-    }
+        Completed_Word = completed_words[integer (keystr)];
+        bdelete_word ();
 
-    delbuf (mbuf);
-    sw2buf (buf);
-    return onewindow ();
+        if (length (F[Completed_Word]) > 0)
+        {
+          syntax = F[Completed_Word][0];
+          insert_and_expand_construct (Completed_Word, syntax);
+        }
+        else
+          insert(Completed_Word);
+      }
+
+      delbuf (mbuf);
+      sw2buf (buf);
+      return onewindow ();
+    }
   }
 
   % completion at editing point
@@ -662,7 +665,12 @@ define tabcomplete ()
   catch IndexError;
 
   if (strlen(syntax))
-    insert_and_expand_construct (completion, syntax);
+  {
+    if (re_line_match("array_map", 0))
+      insert(completion);
+    else
+      insert_and_expand_construct (completion, syntax);
+  }
   else
   {
     if (any(keystr == ["\r","\eOC",Completion_Key]))
@@ -852,15 +860,18 @@ define append_word_to_completions_file ()
   if (length (where (get_blocal_var ("Words") == strlow (word))))
     return flush (sprintf ("\"%s\" already exists in %s", word, get_blocal_var ("Completions_File")));
 
-  ifnot (-1 == append_string_to_file (word, get_blocal_var ("Completions_File")))
+  if (get_y_or_n(sprintf("add \"%s\" to %s", word, get_blocal_var ("Completions_File"))))
   {
-    Words = [Words, word];
-    update_sans_update_hook (1);
-    call ("redraw");
-    flush ("\"$word\" written to $Completions_File"$);
+    ifnot (-1 == append_string_to_file (word, get_blocal_var ("Completions_File")))
+    {
+      Words = [Words, word];
+      update_sans_update_hook (1);
+      call ("redraw");
+      flush ("\"$word\" written to $Completions_File"$);
+    }
+    else
+      throw WriteError, "could not append \"$word\"to $Completions_File"$;
   }
-  else
-    throw WriteError, "could not append \"$word\"to $Completions_File"$;
 }
 
 private variable Wordchars_Old = get_word_chars ();
