@@ -153,6 +153,13 @@ These keys perform the following actions:
          any of these characters until they are balanced with their matching
          delimiters, '(', '[' or '{'.
 
+         NOTE: If you have already fully typed the word you want to complete
+               and this word forms the beginning of other words that are
+               completion candidates, such as if you type "if" (which forms
+               the beginning of "ifnot") and then hit <tab>, then nothing 
+               happens but if you type <space>, the "if" construct will be
+               expanded. Typing <tab> another time will complete to "ifnot".
+
   - Shift-Tab: In "C" and "SLang" modes, this will move the editing point
                two lines down and run the indent_line () function. Useful
                for quickly moving from a condition statement to a block
@@ -183,7 +190,6 @@ You can redefine these keys in a mode hook.
 
 Multi line constructs, including nested constructs will be automatically
 indented upon insertion.
-custom_variable ("Show_Help_Upon_Completion", 0);
 
                         5.1 User Definable Variables
 
@@ -199,7 +205,7 @@ insertion of the completed word. 0 == off, 1 == on
 
 The completion key. Default is TAB.
 
-  variable Wordchars = "\a"R;
+  variable Wordchars = "\w"R;
 
 This variable controls which characters that may be part of a word. This is
 crucial as to what words you want completed.
@@ -228,6 +234,7 @@ its own help interface.
 
 This variable controls whether to use a pop up menu with completion
 targets or to complete from or if completing from the editing point.
+If this is enabled, completion in the minibuffer will be disabled.
 
   variable Sep_Fun_Par_With_Space = 0;
 
@@ -244,6 +251,16 @@ bound to invoking the S-Lang> prompt is detected and if you have more than
 one key (sequence) bound to invoking the prompt, it may not detect the one
 you're actually using. In that case, check those key bindings and remove the
 one(s) you're not using.
+
+  variable Minimum_Completion_Word_Size = 2;
+
+This variable controls the minimum size for words that are candidates for
+completion. If completion is from a generic word list such as a list that
+may be generated with the "aspell (..) dump master (..)" command, then
+personally I prefer a rather large value such as e.g. 10 for this variable
+so that the completion candidates will be limited to words that are
+cumbersome to write and/or difficult to spell. I think it is especially
+convenient if also the variable Use_Completion_Menu is set to 1.
 
 All of these variables should first be entered globally in your ~/.jedrc
 with your preferred default values (or no values) and then possibly fine
