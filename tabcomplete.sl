@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.7 2024/12/22
+% Version 0.9.8 2024/12/29
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -109,7 +109,7 @@ private define indent_region_or_line ()
   else
   {
     check_region (1);                  % make sure the mark comes first
-    variable End_Line = what_line;
+    variable End_Line = what_line - 1;
     exchange_point_and_mark();         % now point is at start of region
 
     do
@@ -211,56 +211,30 @@ private define count_strings(str, expr)
   return matches_n;
 }
 
-% Count the number of a character in a string. This returns a signed
-% integer as opposed to count_char_occurrences() which returns an
-% unsigned one.
-private define count_char_occurrences2(str, ch)
+% Balance the left and right delimiters, [ ] ( ) { }, by inserting or
+% deleting ']', ')' or '}' before the editing point.
+private define align_delims ()
 {
-  variable arr = Char_Type[strlen(str)];
-  init_char_array(arr, str);
-  return length(where(arr == ch));
-}
+  variable rval, delim;
 
-% Balance the left and right [ ] ( ) { } in a line by either inserting or
-% deleting ']' or ')' '}' at the end of the line, one at a time.
-private define align_delims()
-{
-  variable str, mdelim, delim, ldelim_n, rdelim_n, ndiff;
+  ifnot (isspace(what_char())) return;
 
-  push_spot(); str = line_as_string(); pop_spot();
-  bskip_white(); push_spot(); go_left_1(); delim = what_char(); pop_spot();
-  str = str_uncomment_string(str,"\"", "\""); % omit possible delimiters within strings
-  str = str_uncomment_string(str,"\'", "\'");
-
-  if (delim == ')') mdelim = '(';
-  if (delim == '}') mdelim = '{';
-  if (delim == ']') mdelim = '[';
-  
-  rdelim_n = count_char_occurrences2(str, delim);
-  ldelim_n = count_char_occurrences2(str, mdelim);
-
-  if (ldelim_n == 0) return;
-
-  ndiff = ldelim_n - rdelim_n;
-
-  if (ndiff < 0)
-    call("backward_delete_char_untabify");
-  else if (ndiff > 0)
-    insert_char(delim);
-  else
+  forever
   {
-    ifnot ("slang" == detect_mode()) return;
+    push_spot(); go_left_1();
+    delim = what_char();
 
-    % if parantheses are aligned and it is not a conditional/loop/define
-    % line, then just insert the final ';' plus a newline and indent.
-    ifnot (length(where(array_map(Int_Type, &re_line_match, "^" + Loop_Cond_Kws, 1))))
-    {
-      ifnot (blooking_at(";") || looking_at(";"))
-      {
-        insert(";\n");
-        indent_line();
-      }
-    }
+    ifnot (any(delim == [')','}',']'])) return pop_spot();
+
+    rval = find_matching_delimiter(delim);
+    pop_spot();
+
+    if (rval == 1)
+      insert_char(delim);
+    else
+      return call("backward_delete_char_untabify");
+
+    flush("right and left delimiters balanced");
   }
 }
 
@@ -376,6 +350,7 @@ private define get_locale ()
 
   return locale;
 }
+
 private variable Completed_Word = "";
 
 % Insert e.g. a keyword and its syntax, also expanding
@@ -519,6 +494,7 @@ define tabcomplete ()
     completion_words = [""],
     completions = [""],
     completed_word = "",
+    aliases = [""],
     completion = "",
     keystr = "",
     syntax = "",
@@ -532,7 +508,7 @@ define tabcomplete ()
 
   if (looking_at("\",")) return skip_chars("\",");
   if (looking_at(" =")) return skip_chars(" =");
-  if (markp()) return indent_region_or_line();
+  if (is_visible_mark()) return indent_region_or_line();
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
@@ -545,12 +521,20 @@ define tabcomplete ()
     return indent_region_or_line();
 
   % get all words where stub forms the beginning of the words
-  completion_words = Words [where (0 == strnbytecmp (stub, Words, strbytelen (stub)))];
+  completion_words = Words [where (0 == strnbytecmp (stub, Words,
+                                                     strbytelen (stub)))];
+
+  % isolate aliases
+  aliases = completion_words[where(array_map(Int_Type, &string_match,
+                                             completion_words, "@$", 1))];
 
   % only return words of sizes greater than or equal to $Minimum_Completion_Word_Size
   completion_words = completion_words[where(array_map(Int_Type, &strlen,
                                             completion_words) >=
                                             Minimum_Completion_Word_Size)];
+
+  % aliases should always be included regardless of word size limit.
+  completion_words = [aliases, completion_words];
 
   % include stub as a completion target if it has a syntax attached,
   % so that syntax can be expanded with space or enter. Otherwise show
@@ -560,7 +544,8 @@ define tabcomplete ()
   ifnot (length (F))
     completion_words = completion_words [wherenot (completion_words == stub)];
 
-  completions = array_map (String_Type, &get_completion, completion_words, stub); % get all possible completions
+  % get all possible completions
+  completions = array_map (String_Type, &get_completion, completion_words, stub);
   completions = completions[array_sort(completions, &cmp_fun)];
 
   % This pops up a buffer with a menu of all completion candidates if
@@ -673,7 +658,7 @@ define tabcomplete ()
   }
   else
   {
-    if (any(keystr == ["\r","\eOC",Completion_Key]))
+    if (any(keystr == ["\r","\eOC", Completion_Key]))
       insert (completion);
     else
       insert (completion + keystr);
@@ -847,15 +832,9 @@ define append_word_to_completions_file ()
   if (markp ())
     word = bufsubstr ();
   else
-  {
-    if (re_looking_at (sprintf ("[%s]", get_word_chars ())))
-      word = get_word ();
-    else
-      word = get_word ();
-  }
+    word = get_word ();
 
-  ifnot (strlen (word))
-    return;
+  ifnot (strlen (word)) return;
 
   if (length (where (get_blocal_var ("Words") == strlow (word))))
     return flush (sprintf ("\"%s\" already exists in %s", word, get_blocal_var ("Completions_File")));
