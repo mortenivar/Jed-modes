@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.2.3 (2024/12/22)
+% Version = 0.2.3.1 (2024/12/29)
 
 require("pcre");
 require("keydefs");
@@ -410,8 +410,8 @@ define lua_exec_region_or_buffer()
   }
   finally
   {
-    remove(tmpfile);
-    remove(err_file);
+    () = remove(tmpfile);
+    () = remove(err_file);
   }
 }
 
