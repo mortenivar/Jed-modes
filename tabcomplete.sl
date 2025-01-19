@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.8 2024/12/29
+% Version 0.9.8.1 2025/01/19
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -217,7 +217,7 @@ private define align_delims ()
 {
   variable rval, delim;
 
-  ifnot (isspace(what_char())) return;
+  ifnot (isspace(what_char()) || eobp()) return;
 
   forever
   {
@@ -558,6 +558,7 @@ define tabcomplete ()
 
       stub = strtrim (get_word ());
       completed_words = array_map (String_Type, &strcat, stub, completions);
+      ifnot (length(completed_words)) return flush("no completion candidates");
       I = array_map (String_Type, &string, [0:length (completed_words)-1]);
       entries = array_map (String_Type, &strcat, I, "|", completed_words);
       pop2buf (mbuf);
@@ -567,7 +568,7 @@ define tabcomplete ()
       tabcomplete_fit_window();
       update_sans_update_hook (1);
       most_mode ();
-      keystr = get_keystr (6);
+      keystr = get_keystr (10);
       sw2buf (buf);
 
       if (any (keystr == I))
@@ -940,7 +941,7 @@ define init_tabcomplete ()
     % the default completions file
     Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", detect_mode));
 
-    ifnot (1 == file_status (Completions_File))
+    if (0 == file_status (Completions_File))
     {
       if (strlen (locale))
       {
