@@ -4,7 +4,7 @@ aspell.sl is an extension minor mode to the jed editor to spell check the
 current buffer as you type along ("on the fly").  Misspelled words will be
 highlighted in red by default. It borrows some ideas from flyspell.sl
 from jedmodes, but adds some other functions and is also a little less
-complicated to set up, in part because it supports Aspell only. 
+complicated to set up, in part because it supports Aspell only.
 
                                  Facilities
 
@@ -140,6 +140,22 @@ outside the mode hook.
 
   <space> or <return> triggers the function
 
+  When querying for a suggestion to a misspelling and accepting it as a
+  correction, you will be asked if you want to add the pair of the
+  misspelling and the correction to the replacement word list so that the
+  misspelling is auto-corrected in the future.
+
+  Hint: The codespell program has a huge dictionary of common misspellings in
+        the English language and their corrections listed pairwise:
+
+           https://raw.githubusercontent.com/codespell-project/codespell/refs/heads/main/codespell_lib/data/dictionary.txt
+
+        you may simply download that file and then do:
+
+           sed 's/->/:/' dictionary.txt >> ~/.aspell_repl.en
+
+        to enable the auto-correction of about 61.000 misspellings.
+
 - The seventh variable, "Aspell_Use_Tabcompletion", may be used to complete
   words, if you have the "tabcomplete" extension from,
   https://jedmodes.sourceforge.io/mode/tabcomplete, installed. Look at the
@@ -171,10 +187,10 @@ outside the mode hook.
 
 - The eleventh variable, "Aspell_Show_Suggestions_Goto_Misspelled", if
   enabled, will show the menu for Aspell's  suggestions for correcting a
-  misspelled word whenever you go to the next or previous misspelled word.<
+  misspelled word whenever you go to the next or previous misspelled word.
 
 
-All of these ten variables may be redefined in a mode hook.
+All of these eleven variables may be redefined in a mode hook.
 
                                    Usage:
 
@@ -281,9 +297,9 @@ few characters of a possibly difficult word to spell, like "extrat" and then
 The completion file will be loaded automatically based on the
 Aspell dictionary you use.
 
-You load it from a mode hook by setting the variable, thusly
+You load it from a mode hook by first setting this variable in your ~/.jedrc:
 
-    Aspell_Use_Tabcompletion = 1;
+    variable Aspell_Use_Tabcompletion;
 
 E.g. if you use Jed's mailedit.sl extension to edit your emails, then in
 your ~/.jedrc do
@@ -310,9 +326,7 @@ function in the mode hook, first.
     is not working very well in Jed versions prior to "pre0.99.20-143", so
     in particular, if you use a language with such characters, you should
     consider upgrading, if necessary.
-    
+
   - Jumping between misspellings does not work with region spell checking  
 
-Send bug reports or suggestions to:
-
-    Morten Bo Johansen <mortenbo at hotmail dot com>
+Send bug reports or suggestions to: <mortenbo at hotmail dot com>
