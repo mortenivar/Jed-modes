@@ -4,9 +4,12 @@ ideograms like color emojis and the like that cannot easily be typed from a
 keyboard.
 
 Installation: Copy this file to a place where Jed will see it and in your
-~/.jedrc insert the line:
+~/.jedrc insert the lines:
 
-   require("glyph");
+   autoload ("glyph", "glyph");
+   autoload ("glyph_show_description", "glyph");
+   add_completion ("glyph");
+   add_completion ("glyph_show_description");
 
 Requirements: The unicode-character-database must be installed and the
 terminal and font you use must support glyphs or ideograms if that is what
@@ -19,24 +22,13 @@ The location of the unicode-character-database is hardcoded as
 "/usr/share/unicode/UnicodeData.txt". If it is in some other place, then edit
 the value of the variable, "Unicode_Data_File" in glyph.sl
 
-Usage: Invoke with
-
-    <alt>-x glyph
-
-or from the menu
-
-    F10 -> Edit -> Insert Glyph
+Usage: Invoke with Alt-x glyph - or from the menu
+F10 -> Edit -> Insert Glyph
 
 From the prompt enter some search string to get a listing of
 matching glyphs with their accompanying descriptions. Place the
 editing point flush on the chosen glyph and hit <enter> to have it
 inserted into the buffer.
-
-You may also see the description of the character at the editing point by
-invoking
-
-   <alt>-x glyph_show_description
-
 
 Morten Bo Johansen, mortenbo at hotmail dot com
 Licence: GPL, version 2 or later.
