@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.0, 2024-12-22
+%% Version: 0.9.1, 2025-02-02
 %%
 %}}}
 %{{{ Requires
@@ -220,13 +220,6 @@ private define aspell_get_dict()
   return dict;
 }
 
-% Return the word list used for completion with tabcomplete
-private define aspell_set_tabcompletion_wordlist ()
-{
-  variable dict = aspell_get_dict();
-  return expand_filename ("~/.tabcomplete_$dict"$);
-}
-
 % The syntax table for misspelled words
 private define aspell_setup_syntax (tbl)
 {
@@ -306,7 +299,10 @@ private variable Prev_Word = "";
 % keys trigger the function.
 private define aspell_check_word ()
 {
-  variable checked_words = get_blocal_var("checked_words");
+  variable checked_words = Assoc_Type[String_Type, ""];
+
+  if (blocal_var_exists("checked_words"))
+    checked_words = get_blocal_var("checked_words");
 
   Word = strtrim(aspell_get_word ());
   
@@ -342,8 +338,11 @@ private define aspell_signal_handler(pid, flags, status)
 
   if (is_substr(msg, "exit")) % aspell process failed
   {
-    set_blocal_var(0, "aspell_flyspell");
-    Aspell_Flyspell = get_blocal_var("aspell_flyspell");
+    if (blocal_var_exists("aspell_flyspell"))
+    {
+      set_blocal_var(0, "aspell_flyspell");
+      Aspell_Flyspell = get_blocal_var("aspell_flyspell");
+    }
     remove_from_hook ("_jed_before_key_hooks", &before_key_hook);
     throw RunTimeError, "could not start flyspell process, flyspelling disabled";
   }
@@ -425,6 +424,13 @@ private define aspell_select_from_mini (items_arr)
     i = integer (ch);
     return items_arr[i];
   }
+}
+
+% Return the word list used for completion with tabcomplete
+private define aspell_set_tabcompletion_wordlist ()
+{
+  variable dict = aspell_get_dict();
+  return expand_filename ("~/.tabcomplete_$dict"$);
 }
 
 % Load the tabcompletion extension with a word list that corresponds
@@ -579,7 +585,8 @@ define aspell_select_dictionary ()
   ifnot (is_list_element (get_aspell_dicts, Aspell_Dict, ','))
     throw RunTimeError, "dictionary, \"$Aspell_Dict\" not installed"$;
 
-  set_blocal_var(Aspell_Dict, "aspell_dict");
+  if (blocal_var_exists("aspell_dict"))
+    set_blocal_var(Aspell_Dict, "aspell_dict");
 
   if (blocal_var_exists("aspell_flyspell"))
   {
@@ -627,9 +634,11 @@ define aspell_toggle_flyspell ()
 % Spell check a marked region.
 define aspell_flyspell_region()
 {
-  variable flyspell_state = get_blocal_var("aspell_flyspell");
-  variable words_n, i = 0;
+  variable flyspell_state, words_n, i = 0;
   
+  if (blocal_var_exists("aspell_flyspell"))
+    flyspell_state = get_blocal_var("aspell_flyspell");
+
   if (flyspell_state == 0)
     aspell_toggle_flyspell();
 
@@ -638,8 +647,11 @@ define aspell_flyspell_region()
 
   create_syntax_table(Aspell_Typo_Table);
   aspell_setup_syntax(Aspell_Typo_Table);
+
   % empty the cached database of formerly checked words
-  set_blocal_var(Assoc_Type[String_Type], "checked_words");
+  if (blocal_var_exists("checked_words"))
+    set_blocal_var(Assoc_Type[String_Type], "checked_words");
+
   exchange_point_and_mark();
   check_region(1); % push spot
   narrow_to_region();
@@ -684,6 +696,8 @@ public define aspell_buffer ()
     misspelled_words_n = String_Type[0],
     misspelled_words = String_Type[0],
     typos_arr,
+    cmd = "",
+    fp,
     i = 0;
 
   % if minor mode is not loaded and this function is used on its own,
@@ -705,10 +719,12 @@ public define aspell_buffer ()
   push_spot_bob(); push_mark_eob();
   () = write_string_to_file (bufsubstr(), tmpfile);
   pop_spot();
+  % cmd = "aspell list $Aspell_Mode $Aspell_Run_Together_Switch -d $dict <$tmpfile"$,
+  % fp = popen (cmd, "r");
+  % typos_arr = strtrim (fgetslines (fp));
   typos_arr = aspell_popen(["aspell", "list", Aspell_Mode,
                             Aspell_Run_Together_Switch, "-d", Aspell_Dict];
                             write={1,2}, stdin=tmpfile);
-
   () = delete_file (tmpfile);
   set_blocal_var(typos_arr, "misspelled_words");
   misspelled_words = get_blocal_var("misspelled_words");
@@ -740,7 +756,10 @@ define aspell_goto_misspelled(dir)
   ifnot (length(get_blocal_var("misspelled_words")))
     return flush("you must spell check the buffer first");
 
-  variable misspelled_words = get_blocal_var("misspelled_words");
+  variable misspelled_words = String_Type[0];
+
+  if (blocal_var_exists("misspelled_words"))
+    misspelled_words = get_blocal_var("misspelled_words");
 
   try
   {
