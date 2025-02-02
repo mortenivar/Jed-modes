@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.8.1 2025/01/19
+% Version 0.9.8.2 2025/02/02
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -652,7 +652,7 @@ define tabcomplete ()
 
   if (strlen(syntax))
   {
-    if (re_line_match("array_map", 0))
+    if (re_line_match("array_map", 0) || re_line_match("where", 0))
       insert(completion);
     else
       insert_and_expand_construct (completion, syntax);
