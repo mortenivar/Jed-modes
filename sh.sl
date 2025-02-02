@@ -16,11 +16,11 @@ custom_variable("SH_Expand_Kw_Syntax", 1);
 
 % The minimum severity level for shellcheck reporting. Possible values
 % are "style", "info", "warning" and "error".
-custom_variable("SH_Shellcheck_Severity_Level", "warning");
+custom_variable("SH_Shellcheck_Severity_Level", "style");
 
 private variable
   Mode = "SH",
-  Version = "0.6.5",
+  Version = "0.6.6",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -166,7 +166,7 @@ define_syntax ('\'', '"', Mode);
 define_syntax ('"', '"', Mode);
 define_syntax ('\\', '\\', Mode);
 define_syntax ("-0-9a-zA-Z_", 'w', Mode);        % words
-define_syntax ("-+0-9", '0', Mode);   % Numbers
+define_syntax ("$-+0-9", '0', Mode);   % Numbers
 define_syntax (",;:", ',', Mode);
 define_syntax ("%-+/&*=<>|!~^", '+', Mode);
 define_syntax ("#", "",'%',  Mode);
@@ -332,7 +332,7 @@ private define sh_get_prev_kw_and_col()
     while ((sh_get_indent_kw == NULL) ||
            (sh_get_indent_kw == "heredoc_end_token") ||
            (sh_get_indent_kw == "eval")); % skip these
-             
+
     sh_get_indent_kw(); % previous kw on stack
     bol_skip_white();
     _get_point(); % previous kw col on stack
@@ -573,6 +573,7 @@ define sh_indent_region_or_line()
   do
   {
     flush (sprintf ("indenting region ... (%d%%)", (i*100)/reg_endline));
+    if (eolp() and bolp()) continue;
     sh_indent_line();
     i++;
   }
@@ -603,6 +604,7 @@ private define sh_insert_and_expand_construct()
   go_right_1();
   exchange_point_and_mark();
   sh_indent_region_or_line();
+  clear_message();
   () = re_bsearch("@");
   () = replace_match("", 1);
 }
@@ -819,9 +821,17 @@ define sh_electric_left_brace()
 }
 
 ifnot (keymap_p (Mode)) make_keymap(Mode);
+undefinekey_reserved ("W", Mode);
+undefinekey_reserved ("C", Mode);
+undefinekey_reserved ("E", Mode);
 definekey_reserved ("sh_show_on_shellcheck_wiki", "W", Mode);
 definekey_reserved ("sh_index_shellcheck_errors", "C", Mode);
 definekey_reserved ("sh_exec_region_or_buffer", "E", Mode);
+undefinekey (Key_Shift_Up, Mode);
+undefinekey (Key_Shift_Down, Mode);
+undefinekey (Key_Ctrl_PgUp, Mode);
+undefinekey ("}", Mode);
+undefinekey ("{", Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("sh_goto_next_or_prev_shellcheck_entry\(1\)", Key_Shift_Down, Mode);
 definekey ("sh_show_matching_kw", Key_Ctrl_PgUp, Mode);
