@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.1, 2025-02-02
+%% Version: 0.9.2, 2025-02-26
 %%
 %}}}
 %{{{ Requires
@@ -359,6 +359,8 @@ private define aspell_start_flyspell_process ()
   Aspell_Dict = aspell_get_dict();
   setbuf (spellbuf);
 
+  () = aspell_popen(["echo", "abcdef", "dicts"]; write={1,2});
+
   ifnot (Aspell_Pid == -1)
     kill_process (Aspell_Pid);
 
@@ -375,6 +377,14 @@ private define aspell_start_flyspell_process ()
   process_query_at_exit (Aspell_Pid, 0);
   setbuf (buf);
   aspell_set_status_line ();
+  % The flyspell check of the very first misspelled word will be
+  % sluggish, because aspell has to initialize its interface of
+  % suggestions. If one then keeps typing before aspell has properly
+  % finished, the subsequent word may be seen as misspelled even if it
+  % isn't. So sending a misspelled word to the flyspell process right
+  % after it starts hopefully solves that problem.
+  send_process (Aspell_Pid, "abcdef\n"$);
+  get_process_input(5);
   add_to_hook ("_jed_before_key_hooks", &before_key_hook);
 }
 
