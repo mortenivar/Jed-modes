@@ -1,14 +1,13 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
-% Author (this version): Morten Bo Johansen, mortenbo at hotmail dot com
+% Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version = 0.2.3.1 (2024/12/29)
-
+% Version 0.2.4.0 (2025/02/26)
 require("pcre");
 require("keydefs");
 autoload("add_keywords", "syntax");
 
 % The default number of spaces per indentation level
-custom_variable ("Lua_Indent_Default", 2);
+custom_variable ("Lua_Indent_Default", 3);
 
 % Typing <enter> after a conditional or looping keyword will expand to
 % the full syntax of the keyword.
@@ -26,7 +25,6 @@ private variable Lua_Kw_Expand_Hash = Assoc_Type[String_Type, ""];
 private variable Lua_Reserved_Keywords =
   ["and","break","do","else","elseif","end","false","for","function","if","in",
    "local","nil","not","or","repeat","return","then","true","until","while"];
-
 
 % For highlighting. Many function names are strung together from a
 % library name and an associated function name, such as in
@@ -56,16 +54,33 @@ private variable Lua_Funcs =
 
 % Keywords that begin a block or sub-block
 private variable Lua_Block_Beg_Kws =
-  ["function","if","else","elseif","for","while","do","repeat","then","{","}{"];
+  ["function","if","else","elseif","for","do","while","repeat","{","}{","\\("];
 
 % Keywords that end a block or sub-block
-private variable Lua_Block_End_Kws = ["end","else","elseif","until","}"];
+private variable Lua_Block_End_Kws = ["end","until","}","\\)","}{"];
 
-% The regex pattern to detect keywords. It captures at most two
-% keywords, one conditional/looping keyword and/or the 'end' keyword
-% if present in the same line.
-private variable Pat = "\\b(function|if|else|elseif|for|while|until|repeat|" +
-                       "do|then|end)\\b.*?(\\b(end|return)\\b[ ,;()}]*)?$";
+% The PCRE regular expression that vets a string for keywords that
+% should or should not affect indentation. It is meant to do the
+% following:
+%
+% - Match and capture keywords: 'function', 'if', 'else', 'elseif',
+%   'while', 'for', 'do', 'end', 'repeat', 'until', as whole
+%   words as well as delimiters '}', '{', ')', '(' 
+%
+% - If keywords, 'if', 'for', 'while', 'do' are followed by zero or more
+%   characters and then followed by the 'end' keyword on the same line,
+%   all matched as whole words, return NULL.
+%
+% - If keywords, 'elseif', 'function' or 'end', is present in a line
+%   with other keywords, always give priority to capturing those
+%   keywords with 'elseif' given the highest priority.
+%   
+% - If the resulting capture is enveloped in single or double quotes,
+%   return NULL.
+variable Pat = "(?<![\"'])^\\h*\\b(elseif)\\b|(^.*?\\b(function|if|for|while|" +
+               "do)\\b.*\\bend\\b(*SKIP)(*F))|^(?:.*\\b(end|function)\\b|" +
+               ".*?\\b(if|else|elseif|for|while|repeat|until)\\b|" +
+               "^\\h*\\b(do)\\b|(?:.*?([}{\)\(])))(?![\"'])";
 
 % Associative array to insert and expand syntaxes for its keys
 Lua_Kw_Expand_Hash["if"] = " @ then\n \nend";
@@ -93,6 +108,7 @@ private define add_kws_to_table(kws, tbl, n)
   }
 }
 
+% Block strings - "[[ ... ]]" not supported.
 private define lua_setup_syntax()
 {
   variable bg;
@@ -102,10 +118,11 @@ private define lua_setup_syntax()
   set_color("operator", "yellow", bg);
   create_syntax_table(Syntax_Table);
   define_syntax ("--", "", '%', Syntax_Table); % comments
-  define_syntax ("--[[", "]]", '%', Syntax_Table); % comments
-  define_syntax("([{", ")]}", '(', Syntax_Table);
-  define_syntax('"', '"', Syntax_Table);
-  define_syntax('`', '"', Syntax_Table);
+  define_syntax ("--[[", "]]", '%', Syntax_Table); % block comments
+  define_syntax ("{(", "})", '(', Syntax_Table);
+  define_syntax ("([{", ")]}", '(', Syntax_Table);
+  define_syntax('"', '"', Syntax_Table); % strings
+  define_syntax('`', '"', Syntax_Table); % strings
   define_syntax('\'', '\'', Syntax_Table);
   define_syntax('\\', '\\', Syntax_Table);
   define_syntax("0-9a-zA-Z_", 'w', Syntax_Table); % words
@@ -127,22 +144,25 @@ private define lua_re_match_line(re)
   pcre_exec(pcre_compile(re), lua_line_as_str());
 }
 
-% A regular expression version of ffind()
+% A regular expression version of ffind(). It checks if the match
+% being in a string or comment and if so, then tries to see if there
+% are subsequent matches on the line that might not be.
 private define lua_re_ffind(re)
 {
-  variable p = pcre_compile(re);
-  variable pos = 0;
+  variable pos = 0, p = pcre_compile(re);
 
-  if (pcre_exec(p, lua_line_as_str()))
+  while (pcre_exec(p, lua_line_as_str(), pos))
   {
     pos = pcre_nth_match(p, 0)[0];
     goto_column(pos + 1);
+    pos += 1;
+    if (0 == parse_to_point()) break;
   }
 }
 
 % If number of left and right delimiters in a line is uneven, return
 % the unbalanced delimiter.
-define lua_get_unbalanced_delim(ldelim, rdelim)
+private define lua_get_unbalanced_delim(ldelim, rdelim)
 {
   variable ldelim_n = 0, rdelim_n = 0, line = lua_line_as_str();
   line = str_uncomment_string(line,"\"", "\"");
@@ -158,106 +178,151 @@ define lua_get_unbalanced_delim(ldelim, rdelim)
   return NULL;
 }
 
-% Return the keyword(s) in a line or if none, return NULL
+% Find the line of a matching beginning delimiter.
+private define lua_get_indent_matching_delim(delim, matching_delim)
+{
+  variable cnt = 0;
+
+  do
+  {
+    if (string_match(lua_line_as_str(), char(delim), 1))
+      if (char(delim) == lua_get_unbalanced_delim(delim, matching_delim)) cnt++;
+    if (string_match(lua_line_as_str(), char(matching_delim), 1))
+      if (char(matching_delim) ==
+          lua_get_unbalanced_delim(delim, matching_delim)) cnt--;
+
+    if (cnt == 0) break;
+  }
+  while (up(1));
+}
+
+% Capture a Lua keyword or a delimiter in a line
 private define lua_get_kw()
 {
   variable kws, kw = NULL, ldelim_n, rdelim_n;
   variable line = lua_line_as_str();
 
   % remove a trailing comment part in a line
-  if (lua_re_match_line("^.+-- "))
+  if (lua_re_match_line("^.+\\h*--"))
     line = pcre_matches("(^.*)\\h*--.*?$", line)[-1];
 
   kws = pcre_matches(Pat, line);
   kws = kws[[1:]];
   kws = kws[wherenot(_isnull(kws))];
 
-  if (length (kws))
-  {
-    kw = kws[-1];
+  ifnot (length(kws)) return NULL;
 
-    if (length (kws) > 1)
-    {
-      % one-liners, function ... end
-      if (any (kw == ["end","return"]) && any(kws[0] == ["if","for","while","function"]))
-        kw = NULL;
-    }
-  }
-  else
-  {
-    if (lua_re_match_line("{|}"))
-    {
-      kw = lua_get_unbalanced_delim('{','}');
+  kw = kws[-1];
 
-      if (lua_re_match_line("^\\h*},\\h*{\\h*$"))
-        kw = "}{";
-    }
+  if (any(kw == ["(",")"]))
+    kw = lua_get_unbalanced_delim('(',')');
+
+  if (any(kw == ["{","}"]))
+  {
+    kw = lua_get_unbalanced_delim('{','}');
+
+    if (lua_re_match_line("^\\h*},\\h*{\\h*$"))
+      kw = "}{";
   }
 
   push_spot();
 
-  if (any(kw == ["{","}"]))
+  if (any(kw == ["{","}",")","("]))
   {
-    eol();
-    () = bfind(kw);
+    % This captures the outermost delimiter of matches like ")}" or
+    % "})" as this is the one that should be used for finding the line
+    % with the matching delimiter and therefore the correct
+    % indentation. It should have been done in the keyword pattern
+    % regexp, but I couldn't make it fit in ...
+    if (lua_re_match_line("[}\)][}\)]\\h*$"))
+      kw = pcre_matches("[)}]([)}])", lua_line_as_str())[-1];
+
+    kw = str_quote_string(kw, "()", '\\');
+    lua_re_ffind(kw);
   }
   else
     lua_re_ffind("\\b$kw\\b"$);
 
-  if (0 > parse_to_point())
+  if (0 != parse_to_point())
     kw = NULL;
 
   pop_spot();
 
-  return kw, kws;
+  if (kw != NULL)
+    kw = strtrim(kw);
+
+  return kw;
 }
 
-% Return the column position of a matching delimiter
-private define lua_find_col_matching_delim(delim)
+% Find the keyword that matches the level of an 'end' keyword.
+define lua_find_end_matching_level()
 {
-  variable pos = 0;
-  push_spot(); eol();
-  () = bfind_char(delim);
-  if (1 == find_matching_delimiter(delim))
+  variable kw, end_cnt = 0;
+
+  do
   {
-    bol_skip_white ();
-    pos = _get_point();
+    bol();
+    kw = lua_get_kw();
+    if (kw == "end") end_cnt++;
+    if (any(kw == ["if","for","while","function"])) end_cnt--;
+    if (end_cnt == 0) break;
   }
-  pop_spot();
-  return pos;
+  while (up(1));
 }
 
 % Return the keyword in the current line plus the keyword and its
 % column in a preceding line.
-private define find_kw_prev_kw_and_col()
+private define lua_find_kw_prev_kw_and_col()
 {
   variable this_kw = NULL, prev_kw = NULL, prev_kw_col = 0;
+
   push_spot();
+  this_kw = lua_get_kw();
 
-  (this_kw,) = lua_get_kw();
-
-  if (this_kw == "until")
+  try
   {
-    while (up(1))
+    if (this_kw == "end")
     {
-      (prev_kw,) = lua_get_kw();
-      % supports nested repeat ... until
-      if ((prev_kw == "until") || (prev_kw == "repeat")) break;
+      lua_find_end_matching_level();
+      prev_kw = lua_get_kw();
+    }
+    else if (this_kw == "}")
+    {
+      prev_kw = "{";
+      lua_get_indent_matching_delim('{', '}');
+    }
+    else if (this_kw == "\\)")
+    {
+      prev_kw = "\\(";
+      lua_get_indent_matching_delim('(', ')');
+    }
+    else if (this_kw == "until")
+    {
+      while (up(1))
+      {
+        bol();
+        prev_kw = lua_get_kw();
+        % supports nested repeat ... until
+        if ((prev_kw == "until") || (prev_kw == "repeat")) break;
+      }
+    }
+    else
+    {
+      while (up(1))
+      {
+        bol();
+        prev_kw = lua_get_kw();
+        if (prev_kw != NULL) return;
+      }
     }
   }
-  else
+  finally
   {
-    while (up(1))
-    {
-      (prev_kw,) = lua_get_kw();
-      if (prev_kw != NULL) break;
-    }
+    bol_skip_white();
+    prev_kw_col = _get_point();
+    pop_spot();
+    return this_kw, prev_kw, prev_kw_col;
   }
-
-  bol_skip_white();
-  prev_kw_col = _get_point();
-  pop_spot();
-  return this_kw, prev_kw, prev_kw_col;
 }
 
 % Return the point in the line to indent to
@@ -265,16 +330,18 @@ private define lua_get_indentation()
 {
   variable this_kw = NULL, prev_kw = NULL, prev_kw_col = 0;
 
-  (this_kw, prev_kw, prev_kw_col) = find_kw_prev_kw_and_col();
+  (this_kw, prev_kw, prev_kw_col) = lua_find_kw_prev_kw_and_col();
 
   if (this_kw == "}{") this_kw = "}";
   if (prev_kw == "}{") prev_kw = "{";
 
-  if (prev_kw == NULL)
-    return 0;
+  if (prev_kw == NULL) return 0;
 
-  if (this_kw == "}")
-    return lua_find_col_matching_delim('}');
+  if (any(this_kw == ["}","\\)"]))
+    return prev_kw_col;
+
+  if (this_kw == "end" && any(prev_kw == Lua_Block_Beg_Kws))
+    return prev_kw_col;
 
   if (any(this_kw == ["else","elseif"]) && not any(prev_kw == ["if","elseif"]))
     return prev_kw_col - Lua_Indent_Default;
@@ -282,17 +349,14 @@ private define lua_get_indentation()
   if (any(this_kw == ["end","until"]) && any(prev_kw == ["end","until","{","}"]))
     return prev_kw_col - Lua_Indent_Default;
 
-  if (any(this_kw == ["else","elseif","until","do","then"]))
+  if (any(this_kw == ["else","elseif","until"]))
     return prev_kw_col;
 
-  if (this_kw == "end" && any(prev_kw == Lua_Block_Beg_Kws))
+  if (any(prev_kw == Lua_Block_End_Kws))
     return prev_kw_col;
 
   if (any(prev_kw == Lua_Block_Beg_Kws))
     return prev_kw_col + Lua_Indent_Default;
-
-  if (any(prev_kw == Lua_Block_End_Kws))
-    return prev_kw_col;
 
   return NULL;
 }
@@ -339,7 +403,7 @@ define lua_indent_region_or_line()
 % Insert and expand a code block
 private define lua_insert_and_expand_syntax()
 {
-  variable kw = (lua_get_kw(), pop);
+  variable kw = lua_get_kw();
 
   if ((kw == NULL) ||
       (0 == assoc_key_exists(Lua_Kw_Expand_Hash, kw) ||
@@ -420,7 +484,7 @@ private variable Luacheck_Linenos = Int_Type[0];
 private variable Luacheck_Err_Cols = Int_Type[0];
 private variable Luacheck_Error_Color = color_number("preprocess");
 
-% Reset the shellcheck error index and remove line coloring.
+% Reset the luacheck error index and remove line coloring.
 private define lua_luacheck_reset()
 {
   push_spot_bob();
@@ -447,6 +511,7 @@ private define lua_switch_buffer_hook (old_buffer)
 }
 add_to_hook ("_jed_switch_active_buffer_hooks", &lua_switch_buffer_hook);
 
+% Check the current buffer for errors/warnings using the luacheck program
 define lua_luacheck_buffer()
 {
   variable luacheck = search_path_for_file(getenv("PATH"), "luacheck");
@@ -521,10 +586,10 @@ private define lua_goto_level(dir)
 {
   variable kw, col = 1;
   variable kws_beg = Lua_Block_Beg_Kws;
-  variable kws_end = Lua_Block_End_Kws;
+  variable kws_end = [Lua_Block_End_Kws, ["else","elseif"]];
   variable move = &down;
 
-  (kw,) = lua_get_kw();
+  kw = lua_get_kw();
 
   if (dir < 0)
   {
@@ -543,7 +608,7 @@ private define lua_goto_level(dir)
   while (@move(1))
   {
     if (lua_re_match_line("^\\h*$")) continue;
-    (kw,) = lua_get_kw();
+    kw = lua_get_kw();
     if (any(kw == kws_end))
     {
       bol_skip_white();
