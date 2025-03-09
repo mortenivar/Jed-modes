@@ -1,7 +1,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.1.0.0 (2025/03/09)
+% Version 0.1.0.1 (2025/03/09)
 require("pcre");
 require("keydefs");
 require("process");
@@ -239,6 +239,9 @@ private define rust_get_indentation()
   if (prev_delim == "}{") prev_delim = "{";
   if (this_delim == "){") this_delim = ")";
   if (prev_delim == "){") prev_delim = "{";
+
+  if (prev_delim == "if" && this_delim == "{")
+    return prev_delim_col + C_BRACE;
 
   if (this_delim == "}")
     return rust_find_col_matching_delim('}');
