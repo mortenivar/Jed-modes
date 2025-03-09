@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.2.4.0 (2025/02/26)
+% Version 0.2.4.1 (2025/03/07)
 require("pcre");
 require("keydefs");
 autoload("add_keywords", "syntax");
@@ -629,10 +629,16 @@ define lua_goto_end_of_level()
 
 define lua_electric_right_brace()
 {
-  insert("}");
+  if (NULL == lua_get_unbalanced_delim('{','}'))
+  {
+    if (lua_re_match_line("^\\h*$"))
+      insert("}");
+    else
+      insert("\n}");
+  }
 
-  if (lua_re_match_line("^\\h*}\\h*$"))
-    lua_indent_line();
+  lua_indent_line();
+  eol();
 }
 
 ifnot (keymap_p (Mode)) make_keymap(Mode);
