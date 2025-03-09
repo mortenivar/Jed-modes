@@ -1,13 +1,14 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.1.0.1 (2025/03/09)
+% Version 0.1.1.0 (2025/03/09)
 require("pcre");
 require("keydefs");
 require("process");
 autoload("add_keywords", "syntax");
 autoload("c_insert_ket", "cmode");
 autoload("c_insert_bra", "cmode");
+autoload("c_set_style", "cmode");
 
 % The default number of spaces per indentation level
 custom_variable("Rust_Indent", 4);
@@ -15,6 +16,18 @@ custom_variable("Rust_Indent", 4);
 % Additional options to the rustc compiler. It should be a space
 % separated list of options, e.g. "-g -O".
 custom_variable("Rustc_Opts", "");
+
+% From C mode (slightly modified):
+% This variable sets the indentation variables appropriate for
+% a common indentation style.  Currently supported styles include:
+%    "gnu"      Style advocated by GNU
+%    "k&r"      Style popularized by Kernighan and Ritchie
+%    "bsd"      Berkeley style
+%    "foam"     Derivate bsd-style used in OpenFOAM
+%    "linux"    Linux kernel indentation style
+%    "jed"      Style used by the author
+%    "kw"       The Kitware style used in ITK, VTK, ParaView,
+custom_variable("Rust_Indentation_Style", _C_Indentation_Style);
 
 private variable Mode = "Rust";
 private variable Syntax_Table = Mode;
@@ -472,4 +485,5 @@ define rust_mode()
   set_buffer_hook("backward_paragraph_hook", &rust_goto_top_of_level);
   set_buffer_hook("forward_paragraph_hook", &rust_goto_end_of_level);
   run_mode_hooks("rust_mode_hook");
+  c_set_style(Rust_Indentation_Style);
 }
