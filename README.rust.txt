@@ -40,11 +40,12 @@ insert the following two lines;
                                 Configuration:
 
 
-There are two user defined variables that you may set in your ~/.jedrc,
+There are three user defined variables that you may set in your ~/.jedrc,
 shown here with their default values:
 
    variable Rust_Indent = 4;
    variable Rustc_Opts = "";
+   variable("Rust_Indentation_Style", _C_Indentation_Style);
 
 The first variable, Rust_Indent, sets the default number of spaces
 per indentation level. It defaults to 4.
@@ -52,11 +53,34 @@ per indentation level. It defaults to 4.
 The second variable, Rustc_Opts, is a space separated string of options
 to be passed to the rustc compiler. E.g. "-g -O"
 
-Note that options to the rustfmt program should be set in its configuration
-file, e.g. ~/.config/rustfmt/.rustfmt.toml"
+The third variable, Rust_Indentation_Style, is a string that may be set to
+any of the following values to enforce its corresponding indentation style:
 
-there is a mode hook, "rust_mode_hook", where you may have some settings
-specific to the mode.
+   "gnu"      Style advocated by GNU
+   "k&r"      Style popularized by Kernighan and Ritchie
+   "bsd"      Berkeley style
+   "foam"     Derivate bsd-style used in OpenFOAM
+   "linux"    Linux kernel indentation style
+   "jed"      Style used by the author
+   "kw"       The Kitware style used in ITK, VTK, ParaView,
+
+
+Note that options to the rustfmt program should be set in its configuration
+file, e.g. ~/.config/rustfmt/.rustfmt.toml". These settings should probably
+correspond to the indentation style used while editing.
+
+There is a mode hook, "rust_mode_hook", where you may have some settings
+specific to the mode, e.g. in your ~/.jedrc insert:
+
+    variable Rust_Indentation_Style;
+
+    define rust_mode_hook()
+    {
+       Rust_Indentation_Style = "k&r";
+    }
+
+to enforce the "K&R" indentation style while editing.
+
 
                               Key definitions:
 
