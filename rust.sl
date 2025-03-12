@@ -1,7 +1,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.1.1.0 (2025/03/09)
+% Version 0.1.2.0 (2025/03/12)
 require("pcre");
 require("keydefs");
 require("process");
@@ -48,7 +48,8 @@ private variable Rust_Block_Beg_Delims = ["{","(","}{","){","[","if"];
 % Delimiters that end a block.
 private variable Rust_Block_End_Delims = ["}",")","}{","){","]"];
 
-private variable Pat = "(?:.*\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
+% private variable Pat = "(?:.*\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
+private variable Pat = "(?:.*(\{)|\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
 
 % Add keywords to a syntax table for highlighting
 private define add_kws_to_table(kws, tbl, n)
@@ -179,7 +180,7 @@ private define rust_get_delim()
 
 % Return the position of a line with a matching delimiter. It uses
 % Jed's find_matching_delimiter() function to match braces,
-% parantheses or brackets. It tries for every delimiter on the line
+% parentheses or brackets. It tries for every delimiter on the line
 % until there is a match and then checks if the matching delimiter is
 % in a previous line.
 private define rust_find_col_matching_delim(delim)
@@ -326,7 +327,8 @@ define rust_edit_rustc_opts()
 % "~/.config/rustfmt/.rustfmt.toml" for rustfmt
 define rust_format_or_compile(cmd)
 {
-  variable cmd_line, prg, exit_status, obj, str, line = what_line();;
+  variable match, err_line, err_col, cmd_line, prg, exit_status, obj, str;
+  variable line = what_line();
   variable tmpfile = make_tmp_file("rust");
   variable errfile = make_tmp_file("rust_err");
   variable errbuf = "*** errors from $cmd ***"$;
@@ -351,6 +353,8 @@ define rust_format_or_compile(cmd)
     if (NULL == search_path_for_file(getenv("PATH"), "rustc"))
       throw RunTimeError, "rustc program not found";
 
+    flush("compiling ...");
+
     if (strlen(Rustc_Opts))
     {
       Rustc_Opts = strtok(Rustc_Opts);
@@ -373,7 +377,18 @@ define rust_format_or_compile(cmd)
       set_buffer_modified_flag(0);
       most_mode();
       bob();
-      return flush("type 'q' to close this window");
+
+      if (re_fsearch("\\d+:\\d+$"))
+      {
+        match = regexp_nth_match(0);
+        err_line = strtok(match, ":")[0];
+        err_col = strtok(match, ":")[1];
+        otherwindow();
+        goto_line(integer(err_line));
+        goto_column(integer(err_col));
+        otherwindow();
+        return flush("type 'q' to close this window");
+      }
     }
     if (cmd == "rustfmt")
     {
@@ -450,6 +465,14 @@ define rust_goto_end_of_level()
   rust_goto_level(1);
 }
 
+% A convenience function to quickly access the function menu, bound to
+% Shift-F10.
+define show_funcs_menu()
+{
+  call("select_menubar");
+  buffer_keystring("of");
+}
+
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 undefinekey_reserved ("f", Mode);
 definekey_reserved ("rust_format_or_compile\(\"rustfmt\"\)", "f", Mode);
@@ -461,11 +484,40 @@ undefinekey("}", Mode);
 definekey("c_insert_ket", "}", Mode);
 undefinekey("{", Mode);
 definekey("c_insert_bra", "{", Mode);
-undefinekey (Key_Shift_Up, Mode);
-undefinekey (Key_Shift_Down, Mode);
+undefinekey(Key_Shift_F10, Mode);
+definekey("show_funcs_menu", Key_Shift_F10, Mode);
+
+% Create a pop-up menu with quick access to functions in the buffer.
+private define functions_popup_callback(popup)
+{
+  variable fname, fnames, lineno, linenos_hash = Assoc_Type[Int_Type];
+  push_spot_bob;
+
+  while (re_fsearch("^[ \t]*p?u?b?[ \t]*\\<fn\\>[ \t]*\\([a-zA-Z0-9_$]+\\)"))
+  {
+    fname = regexp_nth_match(1);
+    linenos_hash[fname] = what_line();
+    eol();
+  }
+
+  fnames = assoc_get_keys(linenos_hash);
+  fnames = fnames[array_sort(fnames)];
+
+  foreach fname (fnames)
+  {
+    lineno = linenos_hash[fname];
+    menu_append_item(popup, fname, &goto_line, lineno);
+  }
+
+  pop_spot;
+}
 
 private define rust_menu(menu)
 {
+  menu_append_popup(menu, "&Functions");
+  menu_set_select_popup_callback (strcat (menu, ".&Functions"),
+                                  &functions_popup_callback);
+
   menu_append_item (menu, "Format Buffer w/rustfmt", "rust_format_or_compile\(\"rustfmt\"\)");
   menu_append_item (menu, "Compile buffer w/rustc", "rust_format_or_compile\(\"rustc\"\)");
   menu_append_item (menu, "Edit options to rustc", "rust_edit_rustc_opts");
