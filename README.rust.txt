@@ -22,10 +22,13 @@ it has the following facilities:
 
    - interactively edit options to rustc.
 
-   - Jumping up and down between block levels delimited by braces,
+   - jumping up and down between block levels delimited by braces,
      parentheses or brackets.
 
-   - "electric" braces from Jed's C mode.
+   - "dynamic" braces from Jed's C mode.
+
+   - quick access menu with defined functions in the buffer.
+
 
                                 Installation:
 
@@ -97,6 +100,9 @@ The following keys are defined:
 <tab>           - will indent the current line. If a region is visibly marked, that
                   whole region will be indented.
 
+<F9>            - compile buffer with rustc
+
+<Shift>-<F10>   - pop up quick access menu with function definitions.
 
 Whatever keys you have defined for moving a paragraph up or down, will jump
 up or down between code block levels. If you are on a line with one of the
