@@ -1,7 +1,7 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.2.4.1 (2025/03/07)
+% Version 0.2.5.0 (2025/03/13)
 require("pcre");
 require("keydefs");
 autoload("add_keywords", "syntax");
@@ -627,7 +627,7 @@ define lua_goto_end_of_level()
   lua_goto_level(1);
 }
 
-define lua_electric_right_brace()
+define lua_dynamic_right_brace()
 {
   if (NULL == lua_get_unbalanced_delim('{','}'))
   {
@@ -641,20 +641,56 @@ define lua_electric_right_brace()
   eol();
 }
 
+define show_funcs_menu()
+{
+  call("select_menubar");
+  buffer_keystring("of");
+}
+
+% Create a pop-up menu with quick access to functions in the buffer.
+private define functions_popup_callback(popup)
+{
+  variable fname, fnames, lineno, linenos_hash = Assoc_Type[Int_Type];
+  push_spot_bob;
+
+  while (re_fsearch("^[ \t]*l?o?c?a?l?[ \t]*\\<function\\>[ \t]*\\([a-zA-Z0-9_.]+\\)"))
+  {
+    fname = regexp_nth_match(1);
+    linenos_hash[fname] = what_line();
+    eol();
+  }
+
+  fnames = assoc_get_keys(linenos_hash);
+  fnames = fnames[array_sort(fnames)];
+
+  foreach fname (fnames)
+  {
+    lineno = linenos_hash[fname];
+    menu_append_item(popup, fname, &goto_line, lineno);
+  }
+
+  pop_spot;
+}
+
 ifnot (keymap_p (Mode)) make_keymap(Mode);
 undefinekey_reserved ("x", Mode);
 definekey_reserved ("lua_exec_region_or_buffer", "x", Mode);
 undefinekey_reserved ("C", Mode);
 definekey_reserved ("lua_luacheck_buffer", "C", Mode);
 undefinekey("}", Mode);
-definekey("lua_electric_right_brace", "}", Mode);
+definekey("lua_dynamic_right_brace", "}", Mode);
 undefinekey (Key_Shift_Up, Mode);
 undefinekey (Key_Shift_Down, Mode);
 definekey ("lua_goto_next_or_prev_luacheck_entry\(-1\)", Key_Shift_Up, Mode);
 definekey ("lua_goto_next_or_prev_luacheck_entry\(1\)", Key_Shift_Down, Mode);
+undefinekey(Key_Shift_F10, Mode);
+definekey("show_funcs_menu", Key_Shift_F10, Mode);
 
 private define lua_menu(menu)
 {
+  menu_append_popup(menu, "&Functions");
+  menu_set_select_popup_callback (strcat (menu, ".&Functions"),
+                                  &functions_popup_callback);
   menu_append_item (menu, "Check Buffer With Luacheck", "lua_luacheck_buffer");
   menu_append_item (menu, "Go to Next Luacheck Error Line", "lua_goto_next_or_prev_luacheck_entry\(1\)");
   menu_append_item (menu, "Go to Previous Luacheck Error Line", "lua_goto_next_or_prev_luacheck_entry\(-1\)");
