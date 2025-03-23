@@ -20,6 +20,10 @@ it has the following facilities:
      is output, the output will be displayed in a shell window.
      Errors will also be shown in a window.
 
+   - cargo run
+
+   - cargo check
+
    - interactively edit options to rustc.
 
    - jumping up and down between block levels delimited by braces,
@@ -48,7 +52,7 @@ shown here with their default values:
 
    variable Rust_Indent = 4;
    variable Rustc_Opts = "";
-   variable("Rust_Indentation_Style", _C_Indentation_Style);
+   variable("Rust_Indentation_Style", "k&r");
 
 The first variable, Rust_Indent, sets the default number of spaces
 per indentation level. It defaults to 4.
@@ -99,6 +103,10 @@ The following keys are defined:
 
 <tab>           - will indent the current line. If a region is visibly marked, that
                   whole region will be indented.
+
+<f7>            - cargo check.
+
+<f8>            - cargo run
 
 <F9>            - compile buffer with rustc
 
