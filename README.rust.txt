@@ -52,7 +52,7 @@ shown here with their default values:
 
    variable Rust_Indent = 4;
    variable Rustc_Opts = "";
-   variable("Rust_Indentation_Style", "k&r");
+   variable("Rust_Brace_Style", "k&r");
 
 The first variable, Rust_Indent, sets the default number of spaces
 per indentation level. It defaults to 4.
@@ -60,8 +60,8 @@ per indentation level. It defaults to 4.
 The second variable, Rustc_Opts, is a space separated string of options
 to be passed to the rustc compiler. E.g. "-g -O"
 
-The third variable, Rust_Indentation_Style, is a string that may be set to
-any of the following values to enforce its corresponding indentation style:
+The third variable, Rust_Brace_Style, is a string that may be set to
+any of the following values to enforce its corresponding brace style:
 
    "gnu"      Style advocated by GNU
    "k&r"      Style popularized by Kernighan and Ritchie
@@ -74,19 +74,19 @@ any of the following values to enforce its corresponding indentation style:
 
 Note that options to the rustfmt program should be set in its configuration
 file, e.g. ~/.config/rustfmt/.rustfmt.toml". These settings should probably
-correspond to the indentation style used while editing.
+correspond to the brace style used while editing.
 
 There is a mode hook, "rust_mode_hook", where you may have some settings
 specific to the mode, e.g. in your ~/.jedrc insert:
 
-    variable Rust_Indentation_Style;
+    variable Rust_Brace_Style;
 
     define rust_mode_hook()
     {
-       Rust_Indentation_Style = "k&r";
+       Rust_Brace_Style = "linux";
     }
 
-to enforce the "K&R" indentation style while editing.
+to enforce the "K&R" brace style while editing.
 
 
                               Key definitions:
