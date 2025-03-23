@@ -1,7 +1,12 @@
+% -*- mode: slang; mode: fold -*-
+
+%{{{ licence, description, version
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.1.2.0 (2025/03/12)
+% Version 0.2.0.0 (2025/03/23)
+%}}}
+%{{{ requires, autoloads
 require("pcre");
 require("keydefs");
 require("process");
@@ -9,7 +14,8 @@ autoload("add_keywords", "syntax");
 autoload("c_insert_ket", "cmode");
 autoload("c_insert_bra", "cmode");
 autoload("c_set_style", "cmode");
-
+%}}}
+%{{{ User definable variables
 % The default number of spaces per indentation level
 custom_variable("Rust_Indent", 4);
 
@@ -27,11 +33,11 @@ custom_variable("Rustc_Opts", "");
 %    "linux"    Linux kernel indentation style
 %    "jed"      Style used by the author
 %    "kw"       The Kitware style used in ITK, VTK, ParaView,
-custom_variable("Rust_Indentation_Style", _C_Indentation_Style);
-
+custom_variable("Rust_Brace_Style", "k&r");
+%}}}
+%{{{ Private variables
 private variable Mode = "Rust";
 private variable Syntax_Table = Mode;
-
 private variable Rust_Loop_Cond_Keywords = ["if","else","for","while","loop",
                                             "break","continue"];
 private variable Rust_Reserved_Keywords =
@@ -48,9 +54,9 @@ private variable Rust_Block_Beg_Delims = ["{","(","}{","){","[","if"];
 % Delimiters that end a block.
 private variable Rust_Block_End_Delims = ["}",")","}{","){","]"];
 
-% private variable Pat = "(?:.*\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
 private variable Pat = "(?:.*(\{)|\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
-
+%}}}
+%{{{ Syntax and syntax tables
 % Add keywords to a syntax table for highlighting
 private define add_kws_to_table(kws, tbl, n)
 {
@@ -83,7 +89,8 @@ define_syntax (",;.?:", ',', Syntax_Table);
 define_syntax ('#', '#', Syntax_Table);
 define_syntax ("%-+/&*=<>|!~^", '+', Syntax_Table);
 set_syntax_flags (Syntax_Table, 0x4|0x40);
-
+%}}}
+%{{{ Private functions
 private define rust_line_as_str()
 {
   push_spot_bol(); push_mark_eol(); bufsubstr(); pop_spot();
@@ -284,139 +291,16 @@ private define rust_indent_line()
   bol(); trim(); insert_spaces(indentation);
 }
 
-define rust_indent_region_or_line()
+% Set the working directory. This is to ensure that the cargo
+% functions always work as cargo is looking for the Cargo.toml file in
+% either the directory of the file being edited or a parent directory
+% thereof.
+private define rust_set_wdir(dir)
 {
-  variable reg_endline, i = 1;
+  (,dir,,) = getbuf_info(whatbuf());
 
-  ifnot (is_visible_mark())
-    return rust_indent_line();
-
-  check_region(0);
-  reg_endline = what_line();
-  pop_mark_1();
-
-  do
-  {
-    flush (sprintf ("indenting buffer ... (%d%%)", (i*100)/reg_endline));
-    if (eolp() and bolp()) continue;
-    rust_indent_line();
-    i++;
-  }
-  while (down(1) and what_line != reg_endline);
-  clear_message();
-}
-
-define rust_newline_and_indent()
-{
-  bskip_white();
-  push_spot(); rust_indent_line(); pop_spot();
-  insert("\n");
-  rust_indent_line();
-}
-
-% Edit options to rustc.
-define rust_edit_rustc_opts()
-{
-  Rustc_Opts = read_mini("rustc options:","", strjoin(Rustc_Opts, " "));
-}
-
-% Use the rustfmt program to format the current buffer or the rustc
-% program to compile and show a possible output in a window. If there
-% are errors, the output will also be shown in a window. The desired
-% default options to these programs should be set in e.g.
-% "~/.config/rustfmt/.rustfmt.toml" for rustfmt
-define rust_format_or_compile(cmd)
-{
-  variable match, err_line, err_col, cmd_line, prg, exit_status, obj, str;
-  variable line = what_line();
-  variable tmpfile = make_tmp_file("rust");
-  variable errfile = make_tmp_file("rust_err");
-  variable errbuf = "*** errors from $cmd ***"$;
-  variable outfile = sprintf("/tmp/%s", path_basename_sans_extname(whatbuf()));
-
-  push_spot_bob(); push_mark_eob(); str = bufsubstr(); pop_spot();
-
-  if (-1 == write_string_to_file(str, tmpfile))
-    throw RunTimeError, "could not write buffer contents to $tmpfile"$;
-
-  if (cmd == "rustfmt")
-  {
-    if (NULL == search_path_for_file(getenv("PATH"), "rustfmt"))
-      throw RunTimeError, "rustfmt program not found";
-
-    ifnot (get_y_or_n("format buffer with rustfmt")) return;
-
-    obj = new_process ([cmd, tmpfile]; stderr=errfile);
-  }
-  if (cmd == "rustc")
-  {
-    if (NULL == search_path_for_file(getenv("PATH"), "rustc"))
-      throw RunTimeError, "rustc program not found";
-
-    flush("compiling ...");
-
-    if (strlen(Rustc_Opts))
-    {
-      Rustc_Opts = strtok(Rustc_Opts);
-      cmd_line = ["rustc", Rustc_Opts, "-o", outfile, tmpfile];
-    }
-    else
-      cmd_line = ["rustc", "-o", outfile, tmpfile];
-
-    obj = new_process (cmd_line; stderr=errfile);
-  }
-
-  exit_status = obj.wait().exit_status;
-
-  try
-  {
-    if (exit_status != 0)
-    {
-      pop2buf(errbuf);
-      () = insert_file(errfile);
-      set_buffer_modified_flag(0);
-      most_mode();
-      bob();
-
-      if (re_fsearch("\\d+:\\d+$"))
-      {
-        match = regexp_nth_match(0);
-        err_line = strtok(match, ":")[0];
-        err_col = strtok(match, ":")[1];
-        otherwindow();
-        goto_line(integer(err_line));
-        goto_column(integer(err_col));
-        otherwindow();
-        return flush("type 'q' to close this window");
-      }
-    }
-    if (cmd == "rustfmt")
-    {
-      erase_buffer();
-      () = insert_file(tmpfile);
-      goto_line(line);
-      flush("buffer formatted");
-    }
-    if (cmd == "rustc")
-    {
-      do_shell_cmd(outfile); % run the compiled object in a shell window
-      set_buffer_modified_flag(0);
-      trim_buffer();
-      if (eobp()) call("delete_window"); % no visible output
-      else
-      {
-        most_mode();
-        bob();
-      }
-
-      flush("successfully compiled as $outfile"$);
-    }
-  }
-  finally
-  {
-    () = remove(tmpfile);
-    () = remove(errfile);
-  }
+  ifnot (0 == chdir(dir))
+    flush("Could not change to $dir"$);
 }
 
 % Move up and down between block levels.
@@ -455,45 +339,13 @@ private define rust_goto_level(dir)
   }
 }
 
-define rust_goto_top_of_level()
-{
-  rust_goto_level(-1);
-}
-
-define rust_goto_end_of_level()
-{
-  rust_goto_level(1);
-}
-
-% A convenience function to quickly access the function menu, bound to
-% Shift-F10.
-define show_funcs_menu()
-{
-  call("select_menubar");
-  buffer_keystring("of");
-}
-
-ifnot (keymap_p (Mode)) make_keymap(Mode);
-undefinekey_reserved ("f", Mode);
-definekey_reserved ("rust_format_or_compile\(\"rustfmt\"\)", "f", Mode);
-undefinekey_reserved ("o", Mode);
-definekey_reserved ("rust_edit_rustc_opts", "o", Mode);
-undefinekey(Key_F9, Mode);
-definekey("rust_format_or_compile\(\"rustc\"\)", Key_F9, Mode);
-undefinekey("}", Mode);
-definekey("c_insert_ket", "}", Mode);
-undefinekey("{", Mode);
-definekey("c_insert_bra", "{", Mode);
-undefinekey(Key_Shift_F10, Mode);
-definekey("show_funcs_menu", Key_Shift_F10, Mode);
-
 % Create a pop-up menu with quick access to functions in the buffer.
 private define functions_popup_callback(popup)
 {
   variable fname, fnames, lineno, linenos_hash = Assoc_Type[Int_Type];
   push_spot_bob;
 
-  while (re_fsearch("^[ \t]*p?u?b?[ \t]*\\<fn\\>[ \t]*\\([a-zA-Z0-9_$]+\\)"))
+  while (re_fsearch("^[ \t]*b?[ \t]*\\<fn\\>[ \t]*\\([a-zA-Z0-9_$]+\\)"))
   {
     fname = regexp_nth_match(1);
     linenos_hash[fname] = what_line();
@@ -518,11 +370,213 @@ private define rust_menu(menu)
   menu_set_select_popup_callback (strcat (menu, ".&Functions"),
                                   &functions_popup_callback);
 
-  menu_append_item (menu, "Format Buffer w/rustfmt", "rust_format_or_compile\(\"rustfmt\"\)");
-  menu_append_item (menu, "Compile buffer w/rustc", "rust_format_or_compile\(\"rustc\"\)");
-  menu_append_item (menu, "Edit options to rustc", "rust_edit_rustc_opts");
+  menu_append_item (menu, "Forma&t Buffer w/rustfmt", "rust_format_or_compile\(\"rustfmt\"\)");
+  menu_append_item (menu, "&Compile buffer w/rustc", "rust_format_or_compile\(\"rustc\"\)");
+  menu_append_item (menu, "Edit &Options to rustc", "rust_edit_rustc_opts");
+  menu_append_item (menu, "Compile and &Run w/cargo run", "rust_format_or_compile\(\"cargo_run\"\)");
+  menu_append_item (menu, "Check &Project w/cargo check", "rust_format_or_compile\(\"cargo_check\"\)");
 }
 
+define rust_indent_region_or_line()
+{
+  variable reg_endline, i = 1;
+
+  ifnot (is_visible_mark())
+    return rust_indent_line();
+
+  check_region(0);
+  reg_endline = what_line();
+  pop_mark_1();
+
+  do
+  {
+    flush (sprintf ("indenting buffer ... (%d%%)", (i*100)/reg_endline));
+    if (eolp() and bolp()) continue;
+    rust_indent_line();
+    i++;
+  }
+  while (down(1) and what_line != reg_endline);
+  clear_message();
+}
+%}}}
+%{{{ User functions
+define rust_newline_and_indent()
+{
+  bskip_white();
+  push_spot(); rust_indent_line(); pop_spot();
+  insert("\n");
+  rust_indent_line();
+}
+
+% Edit options to rustc.
+define rust_edit_rustc_opts()
+{
+  Rustc_Opts = read_mini("rustc options:","", strjoin(Rustc_Opts, " "));
+}
+
+% Use the rustfmt program to format the current buffer or the rustc
+% program to compile and show a possible output in a window. If there
+% are errors, the output will also be shown in a window. The desired
+% default options to these programs should be set in e.g.
+% "~/.config/rustfmt/.rustfmt.toml" for rustfmt
+define rust_format_or_compile(cmd)
+{
+  variable match, err_line, err_col, cmd_line, exit_status, obj, str;
+  variable line = what_line();
+  variable tmpfile = make_tmp_file("rust");
+  variable errfile = make_tmp_file("rust_err");
+  variable errbuf = "*** errors from $cmd ***"$;
+  variable outfile = sprintf("/tmp/%s", path_basename_sans_extname(whatbuf()));
+
+  push_spot_bob(); push_mark_eob(); str = bufsubstr(); pop_spot();
+
+  if (-1 == write_string_to_file(str, tmpfile))
+    throw RunTimeError, "could not write buffer contents to $tmpfile"$;
+
+  if (cmd == "rustfmt")
+  {
+    if (NULL == search_path_for_file(getenv("PATH"), "rustfmt"))
+      throw RunTimeError, "rustfmt program not found";
+
+    ifnot (get_y_or_n("format buffer with rustfmt")) return;
+
+    obj = new_process ([cmd, tmpfile]; stderr=errfile);
+  }
+  if (cmd == "rustc")
+  {
+    if (NULL == search_path_for_file(getenv("PATH"), "rustc"))
+      throw RunTimeError, "rustc program not found";
+
+    flush("compiling ...");
+
+    if (strlen(Rustc_Opts))
+    {
+      Rustc_Opts = strtok(Rustc_Opts);
+      cmd_line = ["rustc", Rustc_Opts, "-o", outfile, tmpfile];
+    }
+    else
+      cmd_line = ["rustc", "-o", outfile, tmpfile];
+
+    obj = new_process (cmd_line; stderr=errfile);
+  }
+  if (cmd == "cargo_run" || cmd == "cargo_check")
+  {
+    if (NULL == search_path_for_file(getenv("PATH"), "cargo"))
+      throw RunTimeError, "cargo program not found";
+
+    if (cmd == "cargo_run")
+      cmd_line = ["cargo", "run"];
+
+    if (cmd == "cargo_check")
+      cmd_line = ["cargo", "check"];
+
+    obj = new_process (cmd_line; stdout=tmpfile, stderr=errfile);
+  }
+
+  exit_status = obj.wait().exit_status;
+
+  try
+  {
+    if (exit_status != 0)
+    {
+      pop2buf(errbuf);
+      () = insert_file(errfile);
+      set_buffer_modified_flag(0);
+      most_mode();
+      bob();
+
+      if (re_fsearch("\\d+:\\d+$"))
+      {
+        match = regexp_nth_match(0);
+        err_line = strtok(match, ":")[0];
+        err_col = strtok(match, ":")[1];
+        otherwindow();
+        goto_line(integer(err_line));
+        goto_column(integer(err_col));
+        otherwindow();
+      }
+
+      return flush("type 'q' to close this window");
+    }
+
+    if (cmd == "cargo_check")
+      return flush("\"cargo check\" successful.");
+
+    if (cmd == "rustfmt")
+    {
+      erase_buffer();
+      () = insert_file(tmpfile);
+      goto_line(line);
+      return flush("buffer formatted");
+    }
+    if (cmd == "cargo_run")
+    {
+      pop2buf("** Output from \"cargo run\" **");
+      () = insert_file(tmpfile);
+      set_buffer_modified_flag(0);
+      most_mode();
+      bob();
+    }
+    if (cmd == "rustc")
+    {
+      do_shell_cmd(outfile); % run the compiled object in a shell window
+      set_buffer_modified_flag(0);
+      trim_buffer();
+      if (eobp()) call("delete_window"); % no visible output
+      else
+      {
+        most_mode();
+        bob();
+      }
+
+      flush("successfully compiled as $outfile"$);
+    }
+  }
+  finally
+  {
+    () = remove(tmpfile);
+    () = remove(errfile);
+  }
+}
+
+define rust_goto_top_of_level()
+{
+  rust_goto_level(-1);
+}
+
+define rust_goto_end_of_level()
+{
+  rust_goto_level(1);
+}
+
+% A convenience function to quickly access the function menu, bound to
+% Shift-F10.
+define show_funcs_menu()
+{
+  call("select_menubar");
+  buffer_keystring("of");
+}
+%}}}
+%{{{ Key definition map
+ifnot (keymap_p (Mode)) make_keymap(Mode);
+undefinekey_reserved ("f", Mode);
+definekey_reserved ("rust_format_or_compile\(\"rustfmt\"\)", "f", Mode);
+undefinekey_reserved ("o", Mode);
+definekey_reserved ("rust_edit_rustc_opts", "o", Mode);
+undefinekey(Key_F9, Mode);
+definekey("rust_format_or_compile\(\"rustc\"\)", Key_F9, Mode);
+undefinekey(Key_F8, Mode);
+definekey("rust_format_or_compile\(\"cargo_run\"\)", Key_F8, Mode);
+undefinekey(Key_F7, Mode);
+definekey("rust_format_or_compile\(\"cargo_check\"\)", Key_F7, Mode);
+undefinekey("}", Mode);
+definekey("c_insert_ket", "}", Mode);
+undefinekey("{", Mode);
+definekey("c_insert_bra", "{", Mode);
+undefinekey(Key_Shift_F10, Mode);
+definekey("show_funcs_menu", Key_Shift_F10, Mode);
+%}}}
+%{{{ Mode definition
 define rust_mode()
 {
   add_kws_to_table(Rust_Loop_Cond_Keywords, Syntax_Table, 0);
@@ -531,11 +585,14 @@ define rust_mode()
   set_comment_info(Mode, "// ", "", 0);
   set_mode(Mode, 4);
   mode_set_mode_info (Mode, "init_mode_menu", &rust_menu);
+  mode_set_mode_info (Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
   use_keymap (Mode);
   set_buffer_hook("newline_indent_hook", "rust_newline_and_indent");
   set_buffer_hook("indent_hook", "rust_indent_region_or_line");
   set_buffer_hook("backward_paragraph_hook", &rust_goto_top_of_level);
   set_buffer_hook("forward_paragraph_hook", &rust_goto_end_of_level);
   run_mode_hooks("rust_mode_hook");
-  c_set_style(Rust_Indentation_Style);
+  c_set_style(Rust_Brace_Style);
+  append_to_hook ("_jed_switch_active_buffer_hooks", &rust_set_wdir);
 }
+%}}}
