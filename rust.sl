@@ -4,7 +4,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.2.0.0 (2025/03/23)
+% Version 0.2.0.1 (2025/03/23)
 %}}}
 %{{{ requires, autoloads
 require("pcre");
@@ -345,7 +345,7 @@ private define functions_popup_callback(popup)
   variable fname, fnames, lineno, linenos_hash = Assoc_Type[Int_Type];
   push_spot_bob;
 
-  while (re_fsearch("^[ \t]*b?[ \t]*\\<fn\\>[ \t]*\\([a-zA-Z0-9_$]+\\)"))
+  while (re_fsearch("^[ \t]*p?u?b?[ \t]*\\<fn\\>[ \t]*\\([a-zA-Z0-9_$]+\\)"))
   {
     fname = regexp_nth_match(1);
     linenos_hash[fname] = what_line();
