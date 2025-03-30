@@ -24,6 +24,14 @@ it has the following facilities:
 
    - cargo check
 
+   - create new cargo project
+
+   - cargo build release
+
+   - cargo add crate
+
+   - load cargo project 
+
    - interactively edit options to rustc.
 
    - jumping up and down between block levels delimited by braces,
@@ -47,12 +55,13 @@ insert the following two lines;
                                 Configuration:
 
 
-There are three user defined variables that you may set in your ~/.jedrc,
+There are four user defined variables that you may set in your ~/.jedrc,
 shown here with their default values:
 
    variable Rust_Indent = 4;
    variable Rustc_Opts = "";
    variable("Rust_Brace_Style", "k&r");
+   variable("Rust_Proj_dir", expand_filename("~/devel/rust"));
 
 The first variable, Rust_Indent, sets the default number of spaces
 per indentation level. It defaults to 4.
@@ -71,6 +80,8 @@ any of the following values to enforce its corresponding brace style:
    "jed"      Style used by the author
    "kw"       The Kitware style used in ITK, VTK, ParaView,
 
+The fourth variable, Rust_Proj_dir, sets the storage directory for your
+program/projects.
 
 Note that options to the rustfmt program should be set in its configuration
 file, e.g. ~/.config/rustfmt/.rustfmt.toml". These settings should probably
@@ -86,7 +97,8 @@ specific to the mode, e.g. in your ~/.jedrc insert:
        Rust_Brace_Style = "linux";
     }
 
-to enforce the "K&R" brace style while editing.
+to enforce the brace style used by the Linux kernel develeopers while
+editing.
 
 
                               Key definitions:
@@ -100,6 +112,14 @@ The following keys are defined:
 <ctrl>-c f      - format buffer with the rustfmt program.
 
 <ctrl>-c o      - edit options to the rustc compiler.
+
+<ctrl>-c p      - create new cargo project
+
+<ctrl>-c L      - load existing cargo project
+
+<ctrl>-c a      - add crate
+
+<ctrl>-c r      - build release
 
 <tab>           - will indent the current line. If a region is visibly marked, that
                   whole region will be indented.
@@ -125,7 +145,7 @@ You may access some of these functions in the mode menu with F10 -> Mode
                                    Issues:
 
 Rust has a 'lifetime' notation which is marked by one (unbalanced) single
-quote. This collides with having a single quote syntax.
+quote. This collides with having a single quote string syntax.
 
 
 Send suggestions or bug reports to: mortenbo at hotmail dot com
