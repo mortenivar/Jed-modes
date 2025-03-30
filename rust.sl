@@ -4,7 +4,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.2.0.1 (2025/03/23)
+% Version 0.3.0.0 (2025/03/30)
 %}}}
 %{{{ requires, autoloads
 require("pcre");
@@ -34,6 +34,9 @@ custom_variable("Rustc_Opts", "");
 %    "jed"      Style used by the author
 %    "kw"       The Kitware style used in ITK, VTK, ParaView,
 custom_variable("Rust_Brace_Style", "k&r");
+
+% The directory under which programs or projects will be stored.
+custom_variable("Rust_Proj_Dir", expand_filename("~/devel/rust"));
 %}}}
 %{{{ Private variables
 private variable Mode = "Rust";
@@ -49,10 +52,10 @@ private variable Rust_Reserved_Keywords =
    "dyn"];
 
 % Delimiters that begin a block.
-private variable Rust_Block_Beg_Delims = ["{","(","}{","){","[","if"];
+private variable Rust_Block_Beg_Delims = ["{","(","}{","){",")(","[","if"];
 
 % Delimiters that end a block.
-private variable Rust_Block_End_Delims = ["}",")","}{","){","]"];
+private variable Rust_Block_End_Delims = ["}",")","}{","){",")(","]"];
 
 private variable Pat = "(?:.*(\{)|\\b(if)\\b)|(?:.*([}{\)\(\\[\\]]))";
 %}}}
@@ -161,6 +164,9 @@ private define rust_get_delim()
   if (rust_re_match_line("^\\h*}\\h*\\belse\\b"))
     delim = "}{";
 
+  if (rust_re_match_line("^\\h*\\).*?\\(\\h*$"))
+    delim = ")(";
+
   if (rust_re_match_line("^\\h*\\).*?{\\h*$"))
     delim = "){";
 
@@ -260,6 +266,8 @@ private define rust_get_indentation()
   if (prev_delim == "}{") prev_delim = "{";
   if (this_delim == "){") this_delim = ")";
   if (prev_delim == "){") prev_delim = "{";
+  if (this_delim == ")(") this_delim = ")";
+  if (prev_delim == ")(") prev_delim = "(";
 
   if (prev_delim == "if" && this_delim == "{")
     return prev_delim_col + C_BRACE;
@@ -375,8 +383,52 @@ private define rust_menu(menu)
   menu_append_item (menu, "Edit &Options to rustc", "rust_edit_rustc_opts");
   menu_append_item (menu, "Compile and &Run w/cargo run", "rust_format_or_compile\(\"cargo_run\"\)");
   menu_append_item (menu, "Check &Project w/cargo check", "rust_format_or_compile\(\"cargo_check\"\)");
+  menu_append_item (menu, "Create &New Cargo Project", "rust_create_cargo_proj");
+  menu_append_item (menu, "&Load Cargo Project", "rust_load_cargo_proj");
+  menu_append_item (menu, "&Add Crate", "rust_add_cargo_crate");
+  menu_append_item (menu, "Build Relea&se", "rust_cargo_build_release");
 }
 
+private define rust_create_proj_dir()
+{
+  ifnot (2 == file_status(Rust_Proj_Dir))
+  {
+    if (get_y_or_n("Project directory $Rust_Proj_Dir does not exist, create it"$))
+    {
+      if (0 != mkdir(Rust_Proj_Dir))
+        return flush("could not create directory $Rust_Proj_Dir"$);
+    }
+  }
+}
+
+private variable Rust_Error_File = make_tmp_file("rust_err");
+
+private define rust_handle_err(cmd)
+{
+  variable err_line, err_col, match, errbuf = "*** Errors from $cmd ***"$;
+
+  pop2buf(errbuf);
+  () = insert_file(Rust_Error_File);
+  set_buffer_modified_flag(0);
+  most_mode();
+  bob();
+
+  if (re_fsearch("\\d+:\\d+$"))
+  {
+    match = regexp_nth_match(0);
+    err_line = strtok(match, ":")[0];
+    err_col = strtok(match, ":")[1];
+    otherwindow();
+    goto_line(integer(err_line));
+    goto_column(integer(err_col));
+    otherwindow();
+  }
+
+  () = remove(Rust_Error_File);
+  throw RunTimeError, "type 'q' to close this window";
+}
+%}}}
+%{{{ User functions
 define rust_indent_region_or_line()
 {
   variable reg_endline, i = 1;
@@ -398,8 +450,7 @@ define rust_indent_region_or_line()
   while (down(1) and what_line != reg_endline);
   clear_message();
 }
-%}}}
-%{{{ User functions
+
 define rust_newline_and_indent()
 {
   bskip_white();
@@ -421,11 +472,9 @@ define rust_edit_rustc_opts()
 % "~/.config/rustfmt/.rustfmt.toml" for rustfmt
 define rust_format_or_compile(cmd)
 {
-  variable match, err_line, err_col, cmd_line, exit_status, obj, str;
+  variable match, cmd_line, exit_status, obj, str;
   variable line = what_line();
   variable tmpfile = make_tmp_file("rust");
-  variable errfile = make_tmp_file("rust_err");
-  variable errbuf = "*** errors from $cmd ***"$;
   variable outfile = sprintf("/tmp/%s", path_basename_sans_extname(whatbuf()));
 
   push_spot_bob(); push_mark_eob(); str = bufsubstr(); pop_spot();
@@ -440,37 +489,25 @@ define rust_format_or_compile(cmd)
 
     ifnot (get_y_or_n("format buffer with rustfmt")) return;
 
-    obj = new_process ([cmd, tmpfile]; stderr=errfile);
+    obj = new_process ([cmd, tmpfile]; stderr=Rust_Error_File);
   }
   if (cmd == "rustc")
   {
     if (NULL == search_path_for_file(getenv("PATH"), "rustc"))
       throw RunTimeError, "rustc program not found";
 
+    cmd_line = "rustc $Rustc_Opts -o $outfile $tmpfile"$;
+    cmd_line = strtok(cmd_line);
     flush("compiling ...");
-
-    if (strlen(Rustc_Opts))
-    {
-      Rustc_Opts = strtok(Rustc_Opts);
-      cmd_line = ["rustc", Rustc_Opts, "-o", outfile, tmpfile];
-    }
-    else
-      cmd_line = ["rustc", "-o", outfile, tmpfile];
-
-    obj = new_process (cmd_line; stderr=errfile);
+    obj = new_process (cmd_line; stderr=Rust_Error_File);
   }
   if (cmd == "cargo_run" || cmd == "cargo_check")
   {
     if (NULL == search_path_for_file(getenv("PATH"), "cargo"))
       throw RunTimeError, "cargo program not found";
 
-    if (cmd == "cargo_run")
-      cmd_line = ["cargo", "run"];
-
-    if (cmd == "cargo_check")
-      cmd_line = ["cargo", "check"];
-
-    obj = new_process (cmd_line; stdout=tmpfile, stderr=errfile);
+    cmd_line = strtok(cmd, "_");
+    obj = new_process (cmd_line; stdout=tmpfile, stderr=Rust_Error_File);
   }
 
   exit_status = obj.wait().exit_status;
@@ -478,26 +515,7 @@ define rust_format_or_compile(cmd)
   try
   {
     if (exit_status != 0)
-    {
-      pop2buf(errbuf);
-      () = insert_file(errfile);
-      set_buffer_modified_flag(0);
-      most_mode();
-      bob();
-
-      if (re_fsearch("\\d+:\\d+$"))
-      {
-        match = regexp_nth_match(0);
-        err_line = strtok(match, ":")[0];
-        err_col = strtok(match, ":")[1];
-        otherwindow();
-        goto_line(integer(err_line));
-        goto_column(integer(err_col));
-        otherwindow();
-      }
-
-      return flush("type 'q' to close this window");
-    }
+      rust_handle_err(cmd);
 
     if (cmd == "cargo_check")
       return flush("\"cargo check\" successful.");
@@ -533,10 +551,108 @@ define rust_format_or_compile(cmd)
     }
   }
   finally
-  {
     () = remove(tmpfile);
-    () = remove(errfile);
+}
+
+% Create a new Cargo project and read file, main.rs
+define rust_create_cargo_proj()
+{
+  variable proj_name = read_mini("Name of Cargo project?", "", "");
+  variable proj_dir = "$Rust_Proj_Dir/$proj_name"$;
+  variable proj_src_dir = "$proj_dir/src"$;
+  variable main_file = "$proj_src_dir/main.rs"$;
+  variable obj, exit_status;
+
+  if (0 != chdir(Rust_Proj_Dir))
+    return flush("could not change to $Rust_Proj_Dir"$);
+
+  ifnot (2 == file_status(proj_dir))
+  {
+    obj = new_process (["cargo", "new", proj_name]; stderr=Rust_Error_File);
+    exit_status = obj.wait().exit_status;
+
+    if (exit_status != 0)
+      rust_handle_err("cargo new $proj_name"$);
+
+    if (1 != find_file(main_file))
+      return flush("could not read $main_file"$);
+
+    return flush("Project \"$proj_name\" created. Read file $main_file ..."$);
   }
+
+  flush("project \"$proj_name\" already exists in $Rust_Proj_Dir"$);
+}
+
+define rust_cargo_build_release()
+{
+  variable files, dirs, dir, obj, exit_status;
+
+  if (0 != chdir(Rust_Proj_Dir))
+    return flush("could not change to $Rust_Proj_Dir"$);
+
+  files = listdir(Rust_Proj_Dir);
+  dirs = files[where(array_map(Int_Type, &file_status, files) == 2)];
+
+  ifnot (length(dirs))
+    return flush("found no projects to build");
+
+  if (length(dirs) > 1)
+  {
+    dirs = strjoin(dirs, ",");
+    ungetkey('\t');
+    dir = read_string_with_completion ("Build which project?", "", dirs);
+  }
+  else
+    dir = dirs[0];
+
+  if (0 != chdir(dir))
+    return flush("could not change to $dir"$);
+
+  obj = new_process (["cargo", "build", "--release"]; stderr=Rust_Error_File);
+  exit_status = obj.wait().exit_status;
+
+  if (exit_status != 0)
+    rust_handle_err("cargo build --release");
+
+  flush("Release build for project \"$dir\" completed"$);
+
+}
+
+% Add a crate to a Cargo project
+define rust_add_cargo_crate()
+{
+  variable crate = read_mini("name of crate?", "", "");
+  variable exit_status, obj;
+
+  obj = new_process (["cargo", "add", crate]; stdout="/dev/null", stderr=Rust_Error_File);
+  exit_status = obj.wait().exit_status;
+
+  if (exit_status != 0)
+    rust_handle_err("cargo add $crate"$);
+
+  return flush("crate \"$crate\" added"$);
+}
+
+% Read main.rs from a Cargo project into a buffer
+define rust_load_cargo_proj()
+{
+  variable proj, dirs;
+  variable files = listdir(Rust_Proj_Dir);
+
+  if (0 != chdir(Rust_Proj_Dir))
+    return flush("could not change to $Rust_Proj_Dir"$);
+
+  dirs = files[where(array_map(Int_Type, &file_status, files) == 2)];
+
+  ifnot (length(dirs))
+    return flush("No projects in $Rust_Proj_Dir"$);
+
+  dirs = strjoin(dirs, ",");
+  ungetkey('\t');
+  proj = read_string_with_completion("Load project?", "", dirs);
+
+  if (1 != find_file("$Rust_Proj_Dir/$proj/src/main.rs"$))
+    return flush("could not read $Rust_Proj_Dir/$proj/src/main.rs"$);
 }
 
 define rust_goto_top_of_level()
@@ -575,6 +691,15 @@ undefinekey("{", Mode);
 definekey("c_insert_bra", "{", Mode);
 undefinekey(Key_Shift_F10, Mode);
 definekey("show_funcs_menu", Key_Shift_F10, Mode);
+undefinekey_reserved("p", Mode);
+definekey_reserved ("rust_create_cargo_proj", "p", Mode);
+undefinekey_reserved("r", Mode);
+definekey_reserved ("rust_cargo_build_release", "r", Mode);
+undefinekey_reserved("L", Mode);
+definekey_reserved ("rust_load_cargo_proj", "L", Mode);
+undefinekey_reserved("a", Mode);
+definekey_reserved ("rust_add_cargo_crate", "a", Mode);
+definekey("show_funcs_menu", Key_Shift_F10, Mode);
 %}}}
 %{{{ Mode definition
 define rust_mode()
@@ -591,8 +716,9 @@ define rust_mode()
   set_buffer_hook("indent_hook", "rust_indent_region_or_line");
   set_buffer_hook("backward_paragraph_hook", &rust_goto_top_of_level);
   set_buffer_hook("forward_paragraph_hook", &rust_goto_end_of_level);
-  run_mode_hooks("rust_mode_hook");
+  rust_create_proj_dir();
   c_set_style(Rust_Brace_Style);
+  run_mode_hooks("rust_mode_hook");
   append_to_hook ("_jed_switch_active_buffer_hooks", &rust_set_wdir);
 }
 %}}}
