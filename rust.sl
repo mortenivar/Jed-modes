@@ -4,7 +4,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.3.0.0 (2025/03/30)
+% Version 0.3.1.0 (2025/03/31)
 %}}}
 %{{{ requires, autoloads
 require("pcre");
@@ -507,6 +507,12 @@ define rust_format_or_compile(cmd)
       throw RunTimeError, "cargo program not found";
 
     cmd_line = strtok(cmd, "_");
+
+    if (cmd == "cargo_run")
+      flush("executing cargo run ...");
+    else
+      flush("executing cargo check ...");
+
     obj = new_process (cmd_line; stdout=tmpfile, stderr=Rust_Error_File);
   }
 
@@ -710,7 +716,7 @@ define rust_mode()
   set_comment_info(Mode, "// ", "", 0);
   set_mode(Mode, 4);
   mode_set_mode_info (Mode, "init_mode_menu", &rust_menu);
-  mode_set_mode_info (Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
+  mode_set_mode_info(Mode, "fold_info", "// {{{\r// }}}\r//\r//");
   use_keymap (Mode);
   set_buffer_hook("newline_indent_hook", "rust_newline_and_indent");
   set_buffer_hook("indent_hook", "rust_indent_region_or_line");
