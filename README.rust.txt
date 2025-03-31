@@ -97,7 +97,7 @@ specific to the mode, e.g. in your ~/.jedrc insert:
        Rust_Brace_Style = "linux";
     }
 
-to enforce the brace style used by the Linux kernel develeopers while
+to enforce the brace style used by the Linux kernel developers while
 editing.
 
 
@@ -140,6 +140,25 @@ vice versa with the backward_paragraph() function. Note that it _requires_
 the file to be correctly indented!
 
 You may access some of these functions in the mode menu with F10 -> Mode
+
+You may create "folds" in your source files for neatly ordering various
+sections. Insert this line at the top:
+
+   // -*- mode: rust; mode: fold -*-
+
+and then create the folds in your source file like this
+
+
+   // {{{ main.rs
+
+   fn main() {
+      println!("hello world");
+   }
+
+   // }}}
+
+That is, the fold starts and ends with the comment indicator "//" followed by
+one space and then followed by three left or right curly braces.
 
 
                                    Issues:
