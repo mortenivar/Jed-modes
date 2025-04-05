@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.8.2 2025/02/02
+% Version 0.9.8.3 2025/04/05
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -217,7 +217,7 @@ private define align_delims ()
 {
   variable rval, delim;
 
-  ifnot (isspace(what_char()) || eobp()) return;
+  ifnot (isspace(what_char())) return;
 
   forever
   {
@@ -309,9 +309,9 @@ private define make_completions_hash (Completions_File)
 
   lines = [__push_list(lines_list)];
 
-  foreach i (where (is_substr (lines, "::"), &j))
+  foreach i (where (is_substr (lines, ":: "), &j))
   {
-    variable line_array = strtrim (strchop2 (lines[i], "::"));
+    variable line_array = strtrim (strchop2 (lines[i], ":: "));
     variable key = line_array[0];
     F[key] = line_array[[1:]];
     lines[i] = key;
@@ -533,9 +533,6 @@ define tabcomplete ()
                                             completion_words) >=
                                             Minimum_Completion_Word_Size)];
 
-  % aliases should always be included regardless of word size limit.
-  completion_words = [aliases, completion_words];
-
   % include stub as a completion target if it has a syntax attached,
   % so that syntax can be expanded with space or enter. Otherwise show
   % first completion right away. With a hash that contains both single
@@ -558,7 +555,6 @@ define tabcomplete ()
 
       stub = strtrim (get_word ());
       completed_words = array_map (String_Type, &strcat, stub, completions);
-      ifnot (length(completed_words)) return flush("no completion candidates");
       I = array_map (String_Type, &string, [0:length (completed_words)-1]);
       entries = array_map (String_Type, &strcat, I, "|", completed_words);
       pop2buf (mbuf);
@@ -568,13 +564,14 @@ define tabcomplete ()
       tabcomplete_fit_window();
       update_sans_update_hook (1);
       most_mode ();
-      keystr = get_keystr (10);
+      keystr = get_keystr (6);
       sw2buf (buf);
 
       if (any (keystr == I))
       {
         Completed_Word = completed_words[integer (keystr)];
-        bdelete_word ();
+        ifnot (Completed_Word[-1] == '@' or 0 == Insert_Completion_Word)
+          bdelete_word ();
 
         if (length (F[Completed_Word]) > 0)
         {
@@ -652,7 +649,7 @@ define tabcomplete ()
 
   if (strlen(syntax))
   {
-    if (re_line_match("array_map", 0) || re_line_match("where", 0))
+    if (re_line_match("array_map", 0))
       insert(completion);
     else
       insert_and_expand_construct (completion, syntax);
@@ -864,6 +861,9 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
   if (blocal_var_exists ("Completions_File"))
     Completions_File = get_blocal_var ("Completions_File");
 
+  if (blocal_var_exists ("Use_Completion_Menu"))
+    Use_Completion_Menu = get_blocal_var ("Use_Completion_Menu");
+
   if (blocal_var_exists ("Wordchars") && blocal_var_exists ("Extended_Wordchars"))
     define_word (get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars"));
   else
@@ -901,7 +901,7 @@ define slang_mini_completion()
   variable buf = whatbuf();
   variable wordchars = get_blocal_var("Wordchars") + get_blocal_var("Extended_Wordchars");
   variable newl_delim = Newl_Delim;
-  
+
   make_completions_hash(expand_filename("~/.tabcomplete_slang"));
   Wordchars = "-a-zA-Z0-9!#;@_$";
   Newl_Delim = "\\n";
@@ -941,7 +941,7 @@ define init_tabcomplete ()
     % the default completions file
     Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", detect_mode));
 
-    if (0 == file_status (Completions_File))
+    ifnot (1 == file_status (Completions_File))
     {
       if (strlen (locale))
       {
@@ -958,9 +958,18 @@ define init_tabcomplete ()
   ifnot (1 == file_status (Completions_File))
     throw OpenError, "could not open $Completions_File"$;
 
-  define_blocal_var ("Completions_File", Completions_File);
-  define_blocal_var ("Wordchars", Wordchars);
-  define_blocal_var ("Extended_Wordchars", Extended_Wordchars);
+  ifnot (blocal_var_exists("Completions_File"))
+    define_blocal_var ("Completions_File", Completions_File);
+
+  ifnot (blocal_var_exists("Wordchars"))
+    define_blocal_var ("Wordchars", Wordchars);
+
+  ifnot (blocal_var_exists("Extended_Wordchars"))
+    define_blocal_var ("Extended_Wordchars", Extended_Wordchars);
+
+  ifnot (blocal_var_exists("Use_Completion_Menu"))
+    define_blocal_var ("Use_Completion_Menu", Use_Completion_Menu);
+
   define_word (get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars"));
 
 % show help or mini help from function in hyperhelp from jedmodes
@@ -979,8 +988,12 @@ define init_tabcomplete ()
   ifnot (any (Completions_File == Completions_Files))
     make_completions_hash (Completions_File);
 
-  define_blocal_var ("Words", Words);
-  define_blocal_var ("F", F);
+  ifnot (blocal_var_exists("Words"))
+    define_blocal_var ("Words", Words);
+
+  ifnot (blocal_var_exists("F"))
+    define_blocal_var ("F", F);
+
   Completions_Files = [Completions_Files, Completions_File];
 
   local_unsetkey(Completion_Key);
