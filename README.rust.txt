@@ -24,13 +24,9 @@ it has the following facilities:
 
    - cargo check
 
-   - create new cargo project
+   - run other cargo commands
 
-   - cargo build release
-
-   - cargo add crate
-
-   - load cargo project 
+   - load cargo project
 
    - interactively edit options to rustc.
 
@@ -81,7 +77,7 @@ any of the following values to enforce its corresponding brace style:
    "kw"       The Kitware style used in ITK, VTK, ParaView,
 
 The fourth variable, Rust_Proj_dir, sets the storage directory for your
-program/projects.
+programs/projects.
 
 Note that options to the rustfmt program should be set in its configuration
 file, e.g. ~/.config/rustfmt/.rustfmt.toml". These settings should probably
@@ -100,6 +96,24 @@ specific to the mode, e.g. in your ~/.jedrc insert:
 to enforce the brace style used by the Linux kernel developers while
 editing.
 
+                          Executing Cargo commands:
+
+With <ctrl>-c E or "run Cargo Command" from the menu, all Cargo commands may
+be executed on the current project, except for a few commands that interact
+with servers. The function presents you with two prompts, one after the
+other. At the first one, you enter the command, like e.g. "search" and then
+at the subsequent prompt you enter the package to search for. At the second
+prompt, you may also enter all other possible options to the command:
+
+  <prompt 1> Execute Cargo command: search
+  <prompt 2> additional arguments to "search": --limit 25 csv
+
+which would produce a listing of 25 entries for a search for packages that
+have the word, "csv" in them.
+
+Often used commands "cargo check" and "cargo run" are tied to function keys
+<F7> and <F8> respectively.
+
 
                               Key definitions:
 
@@ -109,26 +123,24 @@ The following keys are defined:
 <enter>         - indents the current line and puts editing point in an indented
                   position on the new line.
 
+<tab>           - will indent the current line. If a region is visibly marked, that
+                  whole region will be indented.
+
 <ctrl>-c f      - format buffer with the rustfmt program.
 
 <ctrl>-c o      - edit options to the rustc compiler.
 
-<ctrl>-c p      - create new cargo project
+<ctrl>-c E      - execute cargo command
 
 <ctrl>-c L      - load existing cargo project
 
-<ctrl>-c a      - add crate
+<F7>            - cargo check.
 
-<ctrl>-c r      - build release
+<F8>            - cargo run. This also works with programs that require user
+                  interaction.
 
-<tab>           - will indent the current line. If a region is visibly marked, that
-                  whole region will be indented.
-
-<f7>            - cargo check.
-
-<f8>            - cargo run
-
-<F9>            - compile buffer with rustc
+<F9>            - compile buffer with rustc and show possible output.
+                  This also works with programs that require user interaction.
 
 <Shift>-<F10>   - pop up quick access menu with function definitions.
 
