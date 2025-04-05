@@ -4,7 +4,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.3.1.0 (2025/03/31)
+% Version 0.3.2.0 (2025/04/05)
 %}}}
 %{{{ requires, autoloads
 require("pcre");
@@ -378,27 +378,13 @@ private define rust_menu(menu)
   menu_set_select_popup_callback (strcat (menu, ".&Functions"),
                                   &functions_popup_callback);
 
-  menu_append_item (menu, "Forma&t Buffer w/rustfmt", "rust_format_or_compile\(\"rustfmt\"\)");
-  menu_append_item (menu, "&Compile buffer w/rustc", "rust_format_or_compile\(\"rustc\"\)");
+  menu_append_item (menu, "&Format Buffer w/rustfmt", "rust_format_or_compile(\"rustfmt\")");
+  menu_append_item (menu, "Comp&ile buffer w/rustc", "rust_format_or_compile(\"rustc\")");
   menu_append_item (menu, "Edit &Options to rustc", "rust_edit_rustc_opts");
-  menu_append_item (menu, "Compile and &Run w/cargo run", "rust_format_or_compile\(\"cargo_run\"\)");
-  menu_append_item (menu, "Check &Project w/cargo check", "rust_format_or_compile\(\"cargo_check\"\)");
-  menu_append_item (menu, "Create &New Cargo Project", "rust_create_cargo_proj");
   menu_append_item (menu, "&Load Cargo Project", "rust_load_cargo_proj");
-  menu_append_item (menu, "&Add Crate", "rust_add_cargo_crate");
-  menu_append_item (menu, "Build Relea&se", "rust_cargo_build_release");
-}
-
-private define rust_create_proj_dir()
-{
-  ifnot (2 == file_status(Rust_Proj_Dir))
-  {
-    if (get_y_or_n("Project directory $Rust_Proj_Dir does not exist, create it"$))
-    {
-      if (0 != mkdir(Rust_Proj_Dir))
-        return flush("could not create directory $Rust_Proj_Dir"$);
-    }
-  }
+  menu_append_item (menu, "Run Cargo &Command", "rust_exec_cargo_cmd");
+  menu_append_item (menu, "Chec&k Cargo Project", "rust_exec_cargo_cmd(\"check\")");
+  menu_append_item (menu, "Run Cargo Project", "rust_exec_cargo_cmd(\"run\")");
 }
 
 private variable Rust_Error_File = make_tmp_file("rust_err");
@@ -426,6 +412,23 @@ private define rust_handle_err(cmd)
 
   () = remove(Rust_Error_File);
   throw RunTimeError, "type 'q' to close this window";
+}
+
+private define rust_create_proj_dir()
+{
+  variable obj, exit_status;
+
+  ifnot (2 == file_status(Rust_Proj_Dir))
+  {
+    if (get_y_or_n("Project directory $Rust_Proj_Dir does not exist, create it"$))
+    {
+      obj = new_process (["mkdir", "-p", Rust_Proj_Dir]);
+      exit_status = obj.wait().exit_status;
+
+      if (exit_status != 0)
+        throw RunTimeError, "could not create $Rust_Proj_Dir"$;
+    }
+  }
 }
 %}}}
 %{{{ User functions
@@ -490,153 +493,34 @@ define rust_format_or_compile(cmd)
     ifnot (get_y_or_n("format buffer with rustfmt")) return;
 
     obj = new_process ([cmd, tmpfile]; stderr=Rust_Error_File);
+    exit_status = obj.wait().exit_status;
+
+    if (exit_status != 0)
+      rust_handle_err(cmd);
   }
   if (cmd == "rustc")
   {
     if (NULL == search_path_for_file(getenv("PATH"), "rustc"))
       throw RunTimeError, "rustc program not found";
 
-    cmd_line = "rustc $Rustc_Opts -o $outfile $tmpfile"$;
-    cmd_line = strtok(cmd_line);
-    flush("compiling ...");
-    obj = new_process (cmd_line; stderr=Rust_Error_File);
+    cmd_line =
+      "clear; echo 'output from \"$cmd $Rustc_Opts -o $outfile $tmpfile\":\n' ; "$ +
+      "$cmd $Rustc_Opts -o $outfile $tmpfile && $outfile; "$ +
+      "echo \"\n\033[7mPress <enter> to return to editor ...\033[0m\" ; read"$;
+
+    () = run_program(cmd_line);
   }
-  if (cmd == "cargo_run" || cmd == "cargo_check")
+
+  if (cmd == "rustfmt")
   {
-    if (NULL == search_path_for_file(getenv("PATH"), "cargo"))
-      throw RunTimeError, "cargo program not found";
-
-    cmd_line = strtok(cmd, "_");
-
-    if (cmd == "cargo_run")
-      flush("executing cargo run ...");
-    else
-      flush("executing cargo check ...");
-
-    obj = new_process (cmd_line; stdout=tmpfile, stderr=Rust_Error_File);
+    erase_buffer();
+    () = insert_file(tmpfile);
+    goto_line(line);
+    flush("buffer formatted");
   }
 
-  exit_status = obj.wait().exit_status;
-
-  try
-  {
-    if (exit_status != 0)
-      rust_handle_err(cmd);
-
-    if (cmd == "cargo_check")
-      return flush("\"cargo check\" successful.");
-
-    if (cmd == "rustfmt")
-    {
-      erase_buffer();
-      () = insert_file(tmpfile);
-      goto_line(line);
-      return flush("buffer formatted");
-    }
-    if (cmd == "cargo_run")
-    {
-      pop2buf("** Output from \"cargo run\" **");
-      () = insert_file(tmpfile);
-      set_buffer_modified_flag(0);
-      most_mode();
-      bob();
-    }
-    if (cmd == "rustc")
-    {
-      do_shell_cmd(outfile); % run the compiled object in a shell window
-      set_buffer_modified_flag(0);
-      trim_buffer();
-      if (eobp()) call("delete_window"); % no visible output
-      else
-      {
-        most_mode();
-        bob();
-      }
-
-      flush("successfully compiled as $outfile"$);
-    }
-  }
-  finally
-    () = remove(tmpfile);
-}
-
-% Create a new Cargo project and read file, main.rs
-define rust_create_cargo_proj()
-{
-  variable proj_name = read_mini("Name of Cargo project?", "", "");
-  variable proj_dir = "$Rust_Proj_Dir/$proj_name"$;
-  variable proj_src_dir = "$proj_dir/src"$;
-  variable main_file = "$proj_src_dir/main.rs"$;
-  variable obj, exit_status;
-
-  if (0 != chdir(Rust_Proj_Dir))
-    return flush("could not change to $Rust_Proj_Dir"$);
-
-  ifnot (2 == file_status(proj_dir))
-  {
-    obj = new_process (["cargo", "new", proj_name]; stderr=Rust_Error_File);
-    exit_status = obj.wait().exit_status;
-
-    if (exit_status != 0)
-      rust_handle_err("cargo new $proj_name"$);
-
-    if (1 != find_file(main_file))
-      return flush("could not read $main_file"$);
-
-    return flush("Project \"$proj_name\" created. Read file $main_file ..."$);
-  }
-
-  flush("project \"$proj_name\" already exists in $Rust_Proj_Dir"$);
-}
-
-define rust_cargo_build_release()
-{
-  variable files, dirs, dir, obj, exit_status;
-
-  if (0 != chdir(Rust_Proj_Dir))
-    return flush("could not change to $Rust_Proj_Dir"$);
-
-  files = listdir(Rust_Proj_Dir);
-  dirs = files[where(array_map(Int_Type, &file_status, files) == 2)];
-
-  ifnot (length(dirs))
-    return flush("found no projects to build");
-
-  if (length(dirs) > 1)
-  {
-    dirs = strjoin(dirs, ",");
-    ungetkey('\t');
-    dir = read_string_with_completion ("Build which project?", "", dirs);
-  }
-  else
-    dir = dirs[0];
-
-  if (0 != chdir(dir))
-    return flush("could not change to $dir"$);
-
-  obj = new_process (["cargo", "build", "--release"]; stderr=Rust_Error_File);
-  exit_status = obj.wait().exit_status;
-
-  if (exit_status != 0)
-    rust_handle_err("cargo build --release");
-
-  flush("Release build for project \"$dir\" completed"$);
-
-}
-
-% Add a crate to a Cargo project
-define rust_add_cargo_crate()
-{
-  variable crate = read_mini("name of crate?", "", "");
-  variable exit_status, obj;
-
-  obj = new_process (["cargo", "add", crate]; stdout="/dev/null", stderr=Rust_Error_File);
-  exit_status = obj.wait().exit_status;
-
-  if (exit_status != 0)
-    rust_handle_err("cargo add $crate"$);
-
-  return flush("crate \"$crate\" added"$);
+  () = remove(outfile);
+  () = remove(tmpfile);
 }
 
 % Read main.rs from a Cargo project into a buffer
@@ -655,10 +539,56 @@ define rust_load_cargo_proj()
 
   dirs = strjoin(dirs, ",");
   ungetkey('\t');
-  proj = read_string_with_completion("Load project?", "", dirs);
+  proj = read_string_with_completion("Load project:", "", dirs);
 
   if (1 != find_file("$Rust_Proj_Dir/$proj/src/main.rs"$))
     return flush("could not read $Rust_Proj_Dir/$proj/src/main.rs"$);
+}
+
+% Run a Cargo command.
+define rust_exec_cargo_cmd()
+{
+  variable cmd, opts = "", pager, cmd_line, args = __pop_args(_NARGS);
+  variable XTerm_Pgm = "xterm"; % for xjed, not tested
+
+  % commands login, logout, owner and publish not supported
+  variable cargo_cmds =
+    "add,b,bench,build,c,check,clean,clippy,config,d,doc,fetch,fix,fmt," +
+    "generate-lockfile,help,info,init,install,locate-project,metadata,miri,new," +
+    "package,pkgid,r,remove,report,rm,run,rustc,rustdoc,search,t,test,tree," +
+    "uninstall,update,vendor,verify-project,version,yank";
+
+  if (NULL == search_path_for_file(getenv("PATH"), "cargo"))
+    throw RunTimeError, "cargo program not found";
+
+  if (NULL != search_path_for_file(getenv("PATH"), "most"))
+    pager = "most";
+  else
+    pager = "less -s -R --use-color -Dd+r -Du+b"; % colors in help man page
+
+  ifnot (_NARGS)
+  {
+    cmd = read_string_with_completion("Execute Cargo command:", "", cargo_cmds);
+    ifnot (strlen(cmd)) return;
+    opts = read_mini("additional arguments to \"$cmd\":"$, "", "");
+  }
+  else
+    cmd = __push_args(args);
+
+  cmd_line =
+    "clear; echo 'output from \"cargo $cmd $opts\":\n'; cargo $cmd $opts ;"$ +
+    "echo \"\n\033[7mPress <enter> to return to editor ...\033[0m\" ; read"$;
+
+  if (cmd == "new")
+  {
+    ifnot (0 == chdir(Rust_Proj_Dir))
+      throw RunTimeError, "Could not change to $Rust_Proj_Dir"$;
+  }
+
+  if (cmd == "help")
+    cmd_line = "cargo $cmd $opts | $pager"$;
+
+  () = run_program(cmd_line);
 }
 
 define rust_goto_top_of_level()
@@ -685,26 +615,24 @@ undefinekey_reserved ("f", Mode);
 definekey_reserved ("rust_format_or_compile\(\"rustfmt\"\)", "f", Mode);
 undefinekey_reserved ("o", Mode);
 definekey_reserved ("rust_edit_rustc_opts", "o", Mode);
-undefinekey(Key_F9, Mode);
-definekey("rust_format_or_compile\(\"rustc\"\)", Key_F9, Mode);
-undefinekey(Key_F8, Mode);
-definekey("rust_format_or_compile\(\"cargo_run\"\)", Key_F8, Mode);
 undefinekey(Key_F7, Mode);
-definekey("rust_format_or_compile\(\"cargo_check\"\)", Key_F7, Mode);
+definekey("rust_exec_cargo_cmd(\"check\")", Key_F7, Mode);
+undefinekey(Key_F8, Mode);
+definekey("rust_exec_cargo_cmd(\"run\")", Key_F8, Mode);
+undefinekey(Key_F9, Mode);
+definekey("rust_format_or_compile(\"rustc\")", Key_F9, Mode);
 undefinekey("}", Mode);
 definekey("c_insert_ket", "}", Mode);
 undefinekey("{", Mode);
 definekey("c_insert_bra", "{", Mode);
 undefinekey(Key_Shift_F10, Mode);
 definekey("show_funcs_menu", Key_Shift_F10, Mode);
-undefinekey_reserved("p", Mode);
-definekey_reserved ("rust_create_cargo_proj", "p", Mode);
-undefinekey_reserved("r", Mode);
-definekey_reserved ("rust_cargo_build_release", "r", Mode);
+undefinekey_reserved("E", Mode);
+definekey_reserved ("rust_exec_cargo_cmd", "E", Mode);
 undefinekey_reserved("L", Mode);
 definekey_reserved ("rust_load_cargo_proj", "L", Mode);
-undefinekey_reserved("a", Mode);
-definekey_reserved ("rust_add_cargo_crate", "a", Mode);
+undefinekey_reserved("H", Mode);
+definekey_reserved ("rust_help_for_cargo_cmd", "H", Mode);
 definekey("show_funcs_menu", Key_Shift_F10, Mode);
 %}}}
 %{{{ Mode definition
