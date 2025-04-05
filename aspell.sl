@@ -11,7 +11,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.2, 2025-02-26
+%% Version: 0.9.3, 2025-04-05
 %%
 %}}}
 %{{{ Requires
@@ -390,6 +390,8 @@ private define aspell_start_flyspell_process ()
 
 private define aspell_switch_buffer_hook(oldbuf)
 {
+  ifnot (blocal_var_exists("aspell_dict")) return;
+
   Aspell_Typo_Table = whatbuf();
   aspell_setup_syntax(Aspell_Typo_Table);
 
