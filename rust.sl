@@ -4,7 +4,7 @@
 % rust.sl, a Jed major mode to facilitate the editing of Rust code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.3.2.0 (2025/04/05)
+% Version 0.3.2.1 (2025/04/12)
 %}}}
 %{{{ requires, autoloads
 require("pcre");
@@ -299,16 +299,44 @@ private define rust_indent_line()
   bol(); trim(); insert_spaces(indentation);
 }
 
+private define rust_get_cargo_dir()
+{
+  variable dir = NULL;
+
+  if (any("Cargo.toml" == listdir(".")))
+    dir = expand_filename(path_dirname("./"));
+  else if (any("Cargo.toml" == listdir("../")))
+    dir = expand_filename(path_dirname("../"));
+
+  return dir;
+}
+
+% Put the name of a Cargo package (its directory) in the status line.
+private define rust_set_status_line()
+{
+  variable dir = rust_get_cargo_dir();
+
+  if (dir != NULL)
+  {
+    dir = strtok(dir, "/")[-1];
+    set_status_line (strreplace (Status_Line_String,
+                                 "%m", "%m (Cargo Package: $dir)"$), 0);
+  }
+}
+
 % Set the working directory. This is to ensure that the cargo
 % functions always work as cargo is looking for the Cargo.toml file in
 % either the directory of the file being edited or a parent directory
-% thereof.
-private define rust_set_wdir(dir)
+% thereof. Also update the status line with the name of the current
+% Cargo project.
+private define rust_switch_buffer_hook(dir)
 {
   (,dir,,) = getbuf_info(whatbuf());
 
   ifnot (0 == chdir(dir))
     flush("Could not change to $dir"$);
+
+  rust_set_status_line();
 }
 
 % Move up and down between block levels.
@@ -497,6 +525,11 @@ define rust_format_or_compile(cmd)
 
     if (exit_status != 0)
       rust_handle_err(cmd);
+
+    bob(); push_mark_eob(); del_region(); % preserve undo
+    () = insert_file(tmpfile);
+    goto_line(line);
+    flush("buffer formatted");
   }
   if (cmd == "rustc")
   {
@@ -509,14 +542,6 @@ define rust_format_or_compile(cmd)
       "echo \"\n\033[7mPress <enter> to return to editor ...\033[0m\" ; read"$;
 
     () = run_program(cmd_line);
-  }
-
-  if (cmd == "rustfmt")
-  {
-    erase_buffer();
-    () = insert_file(tmpfile);
-    goto_line(line);
-    flush("buffer formatted");
   }
 
   () = remove(outfile);
@@ -548,7 +573,8 @@ define rust_load_cargo_proj()
 % Run a Cargo command.
 define rust_exec_cargo_cmd()
 {
-  variable cmd, opts = "", pager, cmd_line, args = __pop_args(_NARGS);
+  variable cmd, pkg_name, opts = "", pager, cmd_line, args = __pop_args(_NARGS);
+  variable line = what_line(), col = what_column();
   variable XTerm_Pgm = "xterm"; % for xjed, not tested
 
   % commands login, logout, owner and publish not supported
@@ -589,6 +615,32 @@ define rust_exec_cargo_cmd()
     cmd_line = "cargo $cmd $opts | $pager"$;
 
   () = run_program(cmd_line);
+
+  opts = strtok(opts);
+
+  if (cmd == "new")
+  {
+    pkg_name = opts[-1];
+    () = find_file("$Rust_Proj_Dir/$pkg_name/src/main.rs"$);
+  }
+
+  % These may change the file on disk in which case reload the buffer
+  % with the changed file.
+  if (any(cmd == ["fix","fmt"]))
+  {
+    variable flags, dir, buf, file;
+
+    check_buffers ();
+    (file, dir, buf, flags) = getbuf_info ();
+
+    if (flags & 0x004)
+    {
+      setbuf_info(file, dir, buf, flags & ~0x004);
+      bob(); push_mark_eob(); del_region();
+      () = insert_file(path_concat(dir, file));
+      goto_line(line); goto_column(col);
+    }
+  }
 }
 
 define rust_goto_top_of_level()
@@ -653,6 +705,6 @@ define rust_mode()
   rust_create_proj_dir();
   c_set_style(Rust_Brace_Style);
   run_mode_hooks("rust_mode_hook");
-  append_to_hook ("_jed_switch_active_buffer_hooks", &rust_set_wdir);
+  append_to_hook ("_jed_switch_active_buffer_hooks", &rust_switch_buffer_hook);
 }
 %}}}
