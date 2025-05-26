@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.8.3 2025/04/05
+% Version 0.9.8.4 2025/05/26
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -64,13 +64,18 @@ custom_variable ("SLang_Completion_In_Minibuffer", 0);
 % equal to value.
 custom_variable ("Minimum_Completion_Word_Size", 2);
 
+% By typing one of the left hand delimiters, '(', '{', '[' or the
+% double quote character '"', they will be automatically balanced such
+% that typing e.g. '(' will insert "()" into the buffer and place
+% the editing point between the parantheses. Set to '1' to enable.
+custom_variable ("Tabcomplete_Compl_Delims", 0);
+
 %}}}
 %{{{ Autoloads and evalfiles
 % In Debian, require.sl is in a separate package, slsh, which the user
 % may not have installed, so use evalfile () instead.
 ifnot (is_defined ("Key_F1"))
  () = evalfile ("keydefs");
-
 %}}}
 %{{{ Variables
 private variable
@@ -366,7 +371,16 @@ private define insert_and_expand_construct (kw, syntax)
   if (MINIBUFFER_ACTIVE) % no newlines in the minibuffer
     syntax = strreplace (syntax, Newl_Delim, "");
   else
+  {
+    if (C_BRA_NEWLINE == 0)
+    {
+      if (is_substr(syntax, "\)$Newl_Delim{"$))
+	syntax = strreplace(syntax, "\)$Newl_Delim{"$, "\) {");
+    }
+
     syntax = strreplace (syntax, Newl_Delim, "\n"); % expand newline delimiter in completions file
+  }
+  
 
   kw = strtrim (kw);
   smart_set_mark_cmd ();
@@ -599,7 +613,7 @@ define tabcomplete ()
       {
         if (i == 1) % only one possible completion
         {
-          del_region ();
+	  del_region ();
           break;
         }
         else
@@ -690,9 +704,13 @@ define tabcomplete ()
   }
 }
 
-define move_down_2_and_indent ()
+define move_down_and_indent ()
 {
-  () = down (2);
+  if (C_BRA_NEWLINE == 0)
+    go_down_1();
+  else
+    () = down(2);
+
   call ("indent_line");
 }
 
@@ -712,11 +730,12 @@ define show_hlp_for_word_at_point ()
   if ("slang" == detect_mode ())
     return (@hlpfun (word));
 
-  % A lot of C-functions have a manual page
+  % A lot of C-functions have a manual or info page
   if ("c" == detect_mode())
   {
-    if (0 != run_program("man $word 2>/dev/null"$))
-      return flush("no help for \"$word\""$);
+    if (0 != run_program("info --index-search=$word libc"$))
+      if (0 != run_program("man $word 2>/dev/null"$))
+	return flush("no help for \"$word\""$);
 
     return;
   }
@@ -930,6 +949,25 @@ define slang_mini_completion()
   }
 }
 
+% '"' inserts "", '(' inserts (), '[' inserts [] and places the
+% editing point between the pair of characters.
+define compl_delim_pair(delim)
+{
+  ifnot (eolp() ||
+  	 looking_at_char(')') ||
+  	 looking_at_char(']'))
+  {
+    return insert(delim);
+  }
+  
+  switch (delim)
+  { case "\"": insert("\"\""); }
+  { case "(": insert("\(\)"); }
+  { case "[": insert("[]"); }
+
+  go_left_1();
+}
+
 private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
@@ -1006,7 +1044,7 @@ define init_tabcomplete ()
   if ("slang" == detect_mode() || "c" == detect_mode())
   {
     local_unsetkey(Key_Shift_Tab);
-    local_setkey("move_down_2_and_indent", Key_Shift_Tab);
+    local_setkey("move_down_and_indent", Key_Shift_Tab);
   }
 
   if (Tabcomplete_Use_Help)
@@ -1017,10 +1055,22 @@ define init_tabcomplete ()
     local_setkey("compl_apropos", Key_F2);
   }
 
+  if (Tabcomplete_Compl_Delims)
+  {
+    local_unsetkey("(");
+    local_setkey("compl_delim_pair(\"\(\")", "(");
+    local_unsetkey("[");
+    local_setkey("compl_delim_pair(\"[\")", "[");
+    local_unsetkey("\"");
+    local_setkey("compl_delim_pair(\"\\\"\")", "\"");
+  }
+  
   if (SLang_Completion_In_Minibuffer)
   {
     local_unsetkey(get_evaluate_cmd_key());
     local_setkey("slang_mini_completion", get_evaluate_cmd_key());
   }
+
+  Extended_Wordchars += "@"; % so aliases always work
 }
 %}}}
