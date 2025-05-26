@@ -62,8 +62,8 @@ Each entry is on a line by itself. Line format is:
 
    target word :: [optional syntax for word] :: [optional help text for word]
 
-I.e. three fields all delimited by two colons where the last two fields are
-optional.
+I.e. three fields all delimited by two colons surrounded by one or more
+spaces where the last two fields are optional.
 
 So in their simplest form, lines in the completions file may look like this:
 
@@ -261,6 +261,12 @@ personally I prefer a rather large value such as e.g. 10 for this variable
 so that the completion candidates will be limited to words that are
 cumbersome to write and/or difficult to spell. I think it is especially
 convenient if also the variable Use_Completion_Menu is set to 1.
+
+  variable Tabcomplete_Compl_Delims = 0;
+
+By typing one of the characters, '(', '[', or '"' will insert "()", "[]"
+and '""' into the buffer and place the editing point between the
+two characters. Set to '1' to enable.
 
 All of these variables should first be entered globally in your ~/.jedrc
 with your preferred default values (or no values) and then possibly fine
