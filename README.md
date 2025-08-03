@@ -16,7 +16,7 @@ Some modes for the Jed editor (https://jedsoft.org/jed):
 
 - _tabcomplete.sl_ - Convenience Keyword or Snippet Completion
 
-- _aspell.sl_ - A Spell Checking Utility for the Jed Editor
+- _spell.sl_ - A Spell Checking Utility for the Jed Editor Which Uses Enchant
 
 - _slpo_ - A Standalone Script For Manipulating Gettext Portable Object Files (*.po)
 
