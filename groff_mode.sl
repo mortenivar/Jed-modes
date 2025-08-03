@@ -35,7 +35,7 @@ custom_variable("Groff_Use_Tabcompletion", 0);
 
 private variable
   Groff_Data_Dir = "",
-  Version = "0.5.0",
+  Version = "0.5.1",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -187,7 +187,7 @@ private define groff_get_font_names()
 
   % Return the full paths of all the groff font files as an array.
   foreach fontdir(fontdirs)
-    fontfiles = [fontfiles, array_map(String_Type, &dircat, fontdir, listdir(fontdir))];;
+    fontfiles = [fontfiles, array_map(String_Type, &dircat, fontdir, listdir(fontdir))];
 
   % Return the first line in every font file and put them all in an array.
   first_lines = array_map(String_Type, &groff_get_1st_line, fontfiles);
@@ -1261,11 +1261,15 @@ define insert_tab()
   insert("\t");
 }
 
+create_syntax_table(Mode);
+define_syntax ("\.\\\"", "", '%', Mode);
+define_syntax ('"', '"', Mode);
+
 %{{{ DFA syntax
 
 % The syntax highlighting scheme for the mode.
 #ifdef HAS_DFA_SYNTAX
-create_syntax_table(Mode);
+% create_syntax_table(Mode);
 static define setup_dfa_callback(Mode)
 {
   dfa_define_highlight_rule("^\\.[ ]*[a-zA-Z0-9_\\$\\(\\)\\-]+", "keyword", Mode); % macros
