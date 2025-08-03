@@ -268,6 +268,12 @@ By typing one of the characters, '(', '[', or '"' will insert "()", "[]"
 and '""' into the buffer and place the editing point between the
 two characters. Set to '1' to enable.
 
+  variable Match_Is_Case_Insensitive = 0;
+  
+It controls whether the letters before the editing point that are to be
+completed, will be matched to the possible completions in the completion
+file in a case insensitive manner. It defaults to '0'.  
+
 All of these variables should first be entered globally in your ~/.jedrc
 with your preferred default values (or no values) and then possibly fine
 tuned with other values within a mode hook for that particular mode. E.g:
