@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.8.4 2025/05/26
+% Version 0.9.8.5 2025/08/03
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -51,7 +51,7 @@ custom_variable ("Newl_Delim", "\\n");
 % The completion interface: 0 = at editing point or 1 = with menu
 custom_variable ("Use_Completion_Menu", 0);
 
-% Should there be a space between function name and opening paranthesis?
+% Should there be a space between function name and opening parenthesis?
 % E.g. strtok () vs. strtok(). Looping or conditional keywords will
 % always have a space.
 custom_variable ("Sep_Fun_Par_With_Space", 1);
@@ -64,11 +64,15 @@ custom_variable ("SLang_Completion_In_Minibuffer", 0);
 % equal to value.
 custom_variable ("Minimum_Completion_Word_Size", 2);
 
-% By typing one of the left hand delimiters, '(', '{', '[' or the
-% double quote character '"', they will be automatically balanced such
-% that typing e.g. '(' will insert "()" into the buffer and place
-% the editing point between the parantheses. Set to '1' to enable.
+% By typing one of the characters, '(', '[', or '"' will insert "()", "[]"
+% and '""' into the buffer and place the editing point between the
+% two characters. Set to '1' to enable.
 custom_variable ("Tabcomplete_Compl_Delims", 0);
+
+% When matching the letters before the editing point to the possible
+% completion candidates, should the matching be case insensitive?
+% Set to '1' to enable.
+custom_variable ("Match_Is_Case_Insensitive", 0);
 
 %}}}
 %{{{ Autoloads and evalfiles
@@ -148,7 +152,7 @@ private define get_word ()
   pop_spot ();
 }
 
-% Return a keypress as a string
+% Return a key press as a string
 define get_keystr (delay)
 {
   variable s = char (getkey());
@@ -534,9 +538,14 @@ define tabcomplete ()
   else
     return indent_region_or_line();
 
-  % get all words where stub forms the beginning of the words
-  completion_words = Words [where (0 == strnbytecmp (stub, Words,
-                                                     strbytelen (stub)))];
+  % get all words where stub forms the beginning of the words. Match is case
+  % insensitive.
+  if (Match_Is_Case_Insensitive)
+    completion_words = Words [where (0 == strnbytecmp (strlow(stub), strlow(Words),
+						       strbytelen (stub)))];
+  else % match is case sensitive,
+    completion_words = Words [where (0 == strnbytecmp (stub, Words,
+						       strbytelen (stub)))];
 
   % isolate aliases
   aliases = completion_words[where(array_map(Int_Type, &string_match,
@@ -569,6 +578,10 @@ define tabcomplete ()
 
       stub = strtrim (get_word ());
       completed_words = array_map (String_Type, &strcat, stub, completions);
+
+      ifnot (length(completed_words))
+	return flush("no completions");
+      
       I = array_map (String_Type, &string, [0:length (completed_words)-1]);
       entries = array_map (String_Type, &strcat, I, "|", completed_words);
       pop2buf (mbuf);
@@ -953,13 +966,9 @@ define slang_mini_completion()
 % editing point between the pair of characters.
 define compl_delim_pair(delim)
 {
-  ifnot (eolp() ||
-  	 looking_at_char(')') ||
-  	 looking_at_char(']'))
-  {
+  ifnot (any(what_char() == [']',')',',',';']) || eolp())
     return insert(delim);
-  }
-  
+
   switch (delim)
   { case "\"": insert("\"\""); }
   { case "(": insert("\(\)"); }
