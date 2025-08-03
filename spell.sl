@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4, 2025-08-03
+%% Version: 0.9.4.1, 2025-08-03
 %%
 %}}}
 %{{{ Requires
@@ -64,6 +64,7 @@ custom_variable("Spell_Ignore_Words_Without_Vowels", 0);
 autoload("add_keywords", "syntax");
 autoload("remove_keywords", "syntax");
 autoload("fold_open_buffer", "folding");
+autoload("get_comment_info", "comments");
 #ifnexists init_tabcomplete
 if (strlen (expand_jedlib_file ("tabcomplete.sl")))
   autoload ("init_tabcomplete", "tabcomplete");
