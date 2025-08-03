@@ -306,35 +306,36 @@ completions file. E.g. with aspell:
 this would dump all words from aspell's French dictionary into the hidden
 file ".tabcomplete_fr" in your home directory.
 
-                       7. Use Tabcomplete With Aspell
+	       7. Use Tabcomplete With the spell.sl Extension:
 
-If you have installed the aspell spell checking extension, then you may use
-it to autoload completion files that match your spell checking language.
+If you have installed the spell.sl spell checking extension, then you may
+use it to autoload completion files that match your spell checking language.
 E.g., when writing emails, it is normal to write in different languages, so
 if you also want to be able to complete words, it would be convenient to
 have a completion file for e.g. English loaded when spell checking in that
 language. In that case, you might configure this in the mailedit_mode_hook,
-if you use Jed's mailedit.sl extension to edit your emails. In your ~/.jedrc: 
+if you use Jed's mailedit.sl extension to edit your emails. In your
+~/.jedrc: 
 
-  variable Aspell_Use_Replacement_Wordlist;
-  variable Aspell_Ask_Dictionary;
-  variable Aspell_Use_Tabcompletion;
+  variable Spell_Use_Replacement_Wordlist;
+  variable Spell_Ask_Dictionary;
+  variable Spell_Use_Tabcompletion;
   
   define mailedit_mode_hook ()
   {
-    Aspell_Use_Replacement_Wordlist = 1;
-    Aspell_Ask_Dictionary = 1;
-    Aspell_Use_Tabcompletion = 1;
-    init_aspell ();
+    Spell_Use_Replacement_Wordlist = 1;
+    Spell_Ask_Dictionary = 1;
+    Spell_Use_Tabcompletion = 1;
+    spell_init ();
   }
 
-Please note that the Aspell.* variables must PRECEDE the init_aspell ()
+Please note that the Spell.* variables must PRECEDE the spell_init ()
 function in the mode hook and that these variables should already have been
 defined outside the mode hook, first.
 
 Normally, you would use the "init_tabcomplete ()" function in the mode hook
 to load the tabcompletion functions, but in this case, you simply set the
-variable, Aspell_Use_Tabcompletion, then a completions file,
+variable, Spell_Use_Tabcompletion, then a completions file,
 "$HOME/.tabcompletion_$LANG" is loaded automatically, where $LANG
 corresponds to your current spell checking dictionary. For English, the
 hidden file would then be named ".tabcomplete_en" or ".tabcomplete_en_US"
