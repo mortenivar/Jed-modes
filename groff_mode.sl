@@ -1,8 +1,6 @@
 %% groff_mode.sl - a Jed editing mode for nroff/troff/groff files
-%%
 %% Copyright: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% License: http://www.fsf.org/copyleft/gpl.html
-
 require("keydefs");
 require("pcre");
 
@@ -35,7 +33,7 @@ custom_variable("Groff_Use_Tabcompletion", 0);
 
 private variable
   Groff_Data_Dir = "",
-  Version = "0.5.1",
+  Version = "0.5.2",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -228,39 +226,73 @@ private define groff_get_font_family_and_style(font)
   return family, style;
 }
 
-private variable Macro_Cnt = 0;
-private variable Macro_Cnts = Assoc_Type[Int_Type];
-
-% This counts the total number of a single groff macro in a document
-private define groff_count_macro(macro)
+% This function collects all lines in the document in the current buffer in
+% addition to documents (recursively) included by the ".so" request. It needs
+% cleanly specified paths, either absolute or relative to the current working
+% directory. It does not try to handle paths that contain e.g. variables.  
+private define groff_get_all_lines()
 {
-  CASE_SEARCH = 1;
+  variable lines_akk = String_Type[0];
+  variable so_files = String_Type[0];
+  variable fp, so_file, so_file_n;
 
-  bob();
-
-  while (re_fsearch("^\\<\\$macro\\>"$))
+  push_spot_bob(); push_mark();
+  
+  while(bol_fsearch(".so"))
   {
-    go_right_1();
-    Macro_Cnt++;
+    so_file = strtok(line_as_string())[1];
+    so_files = [so_files, so_file];
   }
 
-  CASE_SEARCH = CASE_SEARCH_DEFAULT;
-  return Macro_Cnt;
+  eob();
+  lines_akk = [lines_akk, strtok(bufsubstr(), "\n")];
+  pop_spot();
+
+  foreach so_file (so_files)
+  {
+    while (search_file(so_file, "^\\.so", 10)) % get up to 10 references in each file
+    {
+      so_file_n = ();
+      so_file_n = strtok(so_file_n)[1];
+      so_files = [so_files, so_file_n];
+      so_file = so_file_n;
+    }
+  }
+  
+  foreach so_file (so_files)
+  {
+    fp = fopen(so_file, "r");
+
+    if (fp != NULL)
+      lines_akk = [lines_akk, fgetslines(fp)];
+  }
+  
+  return lines_akk;
 }
 
-% This counts all of the macros present in a document belonging to 
-% the six main macro packages. The macro package that has the highest
-% count of its macros in the document "wins" and so it will be used as
-% an argument to groff when converting the document. This may be an
-% overkill, but since there are macros that are common to more than
-% one package, at least this should hopefully ensure a rather robust
-% detection. This function in combination with the
-% infer_preproc_options() function aims to do what the grog(1) program
-% does.
-private define groff_infer_macro_package()
+private define groff_get_macro(line)
 {
-  variable me_macros, ms_macros, mom_macros, mm_macros, man_macros, mdoc_macros;
-  variable max_cnt = 0, mp = "";
+  return pcre_matches("^\\.[-a-zA-Z0-9\(\)$]+", line)[0];
+}
+
+% This counts all of the macros present in a document belonging to the six
+% main macro packages. The macro package that has the highest count of its
+% macros in the document "wins" and so it will be used as an argument to
+% groff when converting the document. This may be an overkill, but since
+% there are macros that are common to more than one package, at least this
+% should hopefully ensure a rather robust detection. It also detects calls to
+% preprocessors in the document and returns their corresponding options. It
+% also recurses (infinitely) into files referenced by the ".so" request and
+% collects all macros in these files to be used as a basis for inferring the
+% right command line for compiling the document. This function aims to do
+% what the grog(1) program does (and more).
+private define groff_infer_mp_and_preproc()
+{
+  variable me_macros, ms_macros, mom_macros, mm_macros, man_macros, mdoc_macros, args;
+  variable macros_in_doc, macros, macro_packages, macro_package, lines, macro, mp = "";
+  variable macros_by_package = Assoc_Type[Array_Type];
+  variable macro_package_cnt = Assoc_Type[Int_Type];
+  variable max_cnt = 0, cnt = 0, maybe_needs_soelim = 0;
 
   % The .HX and .LI macros are not me, ms or mom macros, but they are
   % included in these three arrays as "dummy" macros because they are
@@ -268,7 +300,7 @@ private define groff_infer_macro_package()
   % document using any of the me, ms or mom macro packages also
   % included the www.tmac and used e.g. a lot of .LI macros, it could
   % fool the function to see the document as an mm document.
-  me_macros =
+  macros_by_package["-me"] =
     [
      ".$0",".$1",".$2",".$3",".$4",".$5",".$6",".$C",".$c",".$d",".$f",".$H",
      ".$h",".$i",".$l",".$m",".$p",".$s",".1c",".2c",".ar",".(b",".)b",".b",
@@ -283,7 +315,7 @@ private define groff_infer_macro_package()
      ".yr",".(z",".)z",".zs"
     ];
 
-  ms_macros =
+  macros_by_package["-ms"] =
     [
      ".RP",".TL",".AU",".AB",".AI",".AU",".DA",".ND",".AB",".AE",".LP",".PP",
      ".IP",".QP",".QS",".QE",".QE",".XP",".NH",".NH",".SH",".B",".R",".I",".LI",
@@ -294,7 +326,7 @@ private define groff_infer_macro_package()
      ".XN-REPLACEMENT",".XH-REPLACEMENT",".XH-INIT",".XN-INIT",".XH-UPDATE-TOC"
     ];
 
-  mom_macros =
+  macros_by_package["-mom"] =
     [
      ".ADD_SPACE",".ALD",".ALIAS",".AUTHOR",".AUTOLABEL",".AUTOLEAD",".B_MARGIN",
      ".BIBLIOGRAPHY",".BLOCKQUOTE",".BR",".CAPS",".CAPTION",".CENTER",".CODE",
@@ -311,11 +343,11 @@ private define groff_infer_macro_package()
      ".TRAP",".TYPESET",".TYPEWRITE",".UNDERLINE",".WS"
     ];
 
-  mm_macros =
+  macros_by_package["-mm"] =
     [
      ".)E",".1C",".2C",".AE",".AF",".AL",".APP",".APPSK",".AS",".AST",".AT",
      ".AU",".AV",".AVL",".B",".B1",".B2",".BE",".BI",".BL",".BR",".BS",".BVL",
-     ".COVER",".COVEND",".DE",".DF",".DL",".DS",".EC",".EF",".EH",".EN",".EOP",
+     ".COVER",".COVEND",".DE",".DF",".DL",".DS",".EC",".EF",".EH",".EOP",
      ".EPIC",".EX",".FC",".FD",".FE",".FG",".FS",".GETHN",".GETPN",
      ".GETR",".GETST",".H",".HX",".HY",".HZ",".HC",".HM",".HU",".I",".IA",
      ".IB",".IE",".IND",".INDP",".INITI",".INITR",".IR",".ISODATE",".LB",
@@ -327,14 +359,14 @@ private define groff_infer_macro_package()
      ".WA",".WC",".WE",".WF"
     ];
 
-  man_macros =
+  macros_by_package["-man"] =
     [
      ".B",".BI",".BR",".EE",".EX",".I",".IB",".IP",".IR",".LP",".ME",".MR",
      ".MT",".P",".PP",".RB",".RE",".RI",".RS",".SB",".SH",".SM",".SS",".SY",
      ".TH",".TP",".TQ",".UE",".UR",".YS",".AT",".DT",".HP",".OP",".PD",".UC"
     ];
 
-  mdoc_macros =
+  macros_by_package["-mdoc"] =
     [
      ".Ac",".Ad",".An",".Ao",".Ap",".Aq",".Ar",".At",".Bc",".Bd",".Bf",".Bk",
      ".Bl",".Bo",".Bq",".Brc",".Bro",".Brq",".Bsx",".Bt",".Bx",".Cd",".Cm",
@@ -346,70 +378,72 @@ private define groff_infer_macro_package()
      ".Re",".Rs",".Rv",".Sc",".Sh",".Sm",".So",".Sq",".St",".Sx",".Sy",".Tn",
      ".Ud",".Ux",".Va",".Vt",".Xc",".Xo",".Xr",".Xx"
     ];
+  
+  lines = groff_get_all_lines();
+  macro_packages = assoc_get_keys(macros_by_package);
+  macros_in_doc = array_map(String_Type, &groff_get_macro, lines);
+  macros_in_doc = macros_in_doc[wherenot(_isnull(macros_in_doc))];
+  
+  if (any(".so" == macros_in_doc)) 
+    maybe_needs_soelim = 1;
 
-  % The groff_count_macro() function is run once for each macro belonging to
-  % a macro package to create a total count for each macro package. It stores
-  % that count in the variable Macro_Cnt which is then associated with the
-  % groff option for the macro package.
-  () = array_map(Int_Type, &groff_count_macro, me_macros);
-  Macro_Cnts["-me"] = Macro_Cnt;
-  Macro_Cnt = 0;
+  foreach macro_package (macro_packages)
+  {
+    foreach macro (macros_by_package[macro_package])
+    {
+      if (any(macro == macros_in_doc))
+	cnt++;
+    }
 
-  () = array_map(Int_Type, &groff_count_macro, ms_macros);
-  Macro_Cnts["-ms"] = Macro_Cnt;
-  Macro_Cnt = 0;
-
-  () = array_map(Int_Type, &groff_count_macro, mom_macros);
-  Macro_Cnts["-mom"] = Macro_Cnt;
-  Macro_Cnt = 0;
-
-  () = array_map(Int_Type, &groff_count_macro, mm_macros);
-  Macro_Cnts["-mm"] = Macro_Cnt;
-  Macro_Cnt = 0;
-
-  () = array_map(Int_Type, &groff_count_macro, man_macros);
-  Macro_Cnts["-man"] = Macro_Cnt;
-  Macro_Cnt = 0;
-
-  () = array_map(Int_Type, &groff_count_macro, mdoc_macros);
-  Macro_Cnts["-mdoc"] = Macro_Cnt;
-  Macro_Cnt = 0;
-
-  max_cnt = max(assoc_get_values(Macro_Cnts));
-
-  if (max_cnt == 0) return ""; % pure nroff/troff, apparently.
+    macro_package_cnt[macro_package] = cnt;
+    cnt = 0;
+  }
+  
+  max_cnt = max(assoc_get_values(macro_package_cnt));
 
   % the macro package that has the highest number of its macros in the document
-  mp = assoc_get_keys(Macro_Cnts)[wherefirst(assoc_get_values(Macro_Cnts) == max_cnt)];
-  return mp;
-}
-
-% Detect what preprocessor options may be needed for the document.
-private define groff_infer_preproc_options()
-{
-  variable preproc, preprocs = Assoc_Type[String_Type];
-  variable opts = String_Type[0];
-
-  % associate the preprocessor options to groff with the defining macros
-  preprocs[".cstart"] = "-j"; % chem
-  preprocs[".\\["] = "-R";    % refer
-  preprocs[".TS"] = "-t";     % tbl
-  preprocs[".EQ"] = "-e";     % eqn
-  preprocs[".GS"] = "-g";     % grn
-  preprocs[".G1"] = "-G";     % grap
-  preprocs[".PS"] = "-p";     % pic
-  preprocs[".BOXSTART"] = "-msboxes"; % sboxes - a macro package, actually
-
-  % Detect and accumulate all possibly needed preprocessors in a string.
-  foreach preproc (assoc_get_keys(preprocs))
+  if (max_cnt > 0)
+    mp = assoc_get_keys(macro_package_cnt)[wherefirst(assoc_get_values(macro_package_cnt) == max_cnt)];
+  else
+    mp = ""; % pure nroff/troff apparently
+  
+  variable preproc, PH = Assoc_Type[String_Type];
+  variable preprocs = String_Type[0];
+  
+  % associate the options for some preprocessors packages with their defining
+  % macros
+  PH[".cstart"] = "-j";     % chem
+  PH[".\\["]    = "-R";     % refer
+  PH[".TS"]     = "-t";     % tbl
+  PH[".EQ"]     = "-e";     % eqn
+  PH[".GS"]     = "-g";     % grn
+  PH[".G1"]     = "-G";     % grap
+  PH[".PS"]     = "-p";     % pic
+  
+  % Detect and accumulate all possibly needed preprocessors
+  foreach preproc (assoc_get_keys(PH))
   {
-    if (groff_count_macro(preproc))
-      opts = [opts, preprocs[preproc]];
-
-    Macro_Cnt = 0;
+    if (any(preproc == macros_in_doc))
+    {
+      preprocs = [preprocs, PH[preproc]];
+      continue;
+    }
   }
 
-  return strjoin(opts, " ");
+  % invoke the soelim preprocessor if document has .so included files
+  % which call any of the groff preprocessors.
+  if (length(preprocs) && maybe_needs_soelim)
+    preprocs = ["-s", preprocs];
+
+  % this may not be guaranteed to work in all cases ...
+  if (any(".TBL" == macros_in_doc)) 
+    mp += " -m hdtbl";
+
+  if (any(".BOXSTART" == macros_in_doc)) % sboxes
+    mp += " -m sboxes";
+
+  preprocs = strjoin(preprocs, " ");
+  return mp, preprocs;
 }
 
 % Return the values of some other groff options.
@@ -426,6 +460,11 @@ define groff_get_other_options()
   }
   else if (any(Groff_Output_Device == ["html", "xhtml"])) opts += " -P-D/tmp";
   return opts;
+}
+
+private define groff_set_status_line(args)
+{
+  set_status_line(strreplace(Status_Line_String, "%m", "%m " + args), 0);
 }
 
 % The variable that holds the process id for the pdf viewer.
@@ -699,45 +738,46 @@ define groff_preview_buffer()
     if (NULL == search_path_for_file(getenv("PATH"), "ps2pdf"))
       throw RunTimeError, "output device \"ps\" needs the program \"ps2pdf\"";
 
-  push_spot();
-
   variable
     xpdfserver = "xpdfserver",
     path = getenv("PATH"),
     pwd = getenv("PWD"),
     pager = "",
     browser = "",
-    macro_package = groff_infer_macro_package(),
-    preproc_opts = groff_infer_preproc_options(),
+    macro_package = "",
+    preprocs = "",
     other_opts = groff_get_other_options(),
-    output_file = "/tmp/groff_mode_out",
-    tmpfile = "/tmp/groff_mode_tmpfile",
+    output_file = "/tmp/groff_preview_process_output",
+    tmpfile = make_tmp_file("groff_preview"),
     cmd = "",
+    str = "",
     dir = "";
 
+  (macro_package, preprocs) = groff_infer_mp_and_preproc();
+  push_spot(); mark_buffer(); str = bufsubstr(); pop_spot();
   (,dir,,) = getbuf_info(whatbuf());
   () = chdir(dir);
+  () = write_string_to_file(str, tmpfile);
 
-  mark_buffer();
-  () = write_string_to_file(bufsubstr(), tmpfile);
-  pop_spot();
-
-  % If mandoc is installed use that for converting manual page
-  % documents, otherwise use -man or -mdoc whichever applies
+  % If mandoc is installed use that for converting manual pages
   if ((macro_package == "-man" || macro_package == "-mdoc") &&
-      (NULL != search_path_for_file(getenv("PATH"), "mandoc")))
+      NULL != search_path_for_file(getenv("PATH"), "mandoc"))
   {
-    macro_package = "(mandoc)"; % just for the status line
     cmd = "mandoc -K $Groff_Encoding -T $Groff_Output_Device $tmpfile"$;
+    groff_set_status_line("(mandoc)");
   }
   else
-    cmd = "groff $macro_package $preproc_opts $other_opts $tmpfile 2>/dev/null"$;
-
+  {
+    cmd = "groff $preprocs $macro_package $other_opts $tmpfile 2>/dev/null"$;
+    groff_set_status_line("$preprocs $macro_package"$);
+  }
+  
   switch (Groff_Output_Device)
   { case "ps" or case "pdf": output_file += ".pdf"; }
   { case "html" or case "xhtml": output_file += ".html"; }
   
-  if (strlen(Groff_Cmd)) cmd = "$Groff_Cmd $tmpfile 2>/dev/null"$;
+  if (strlen(Groff_Cmd))
+    cmd = "$Groff_Cmd $tmpfile 2>/dev/null"$;
 
   if (Groff_Output_Device == "ps")
     cmd += "| ps2pdf - >$output_file"$;
@@ -745,6 +785,7 @@ define groff_preview_buffer()
     cmd += ">$output_file"$;
 
   groff_run_system_cmd(cmd);
+  () = remove(tmpfile);
   () = chdir(pwd);
 
   pager = groff_find_prgs_use_first("less most more");
@@ -792,20 +833,18 @@ define groff_preview_buffer()
     if (Groff_Pdf_Viewer == "qpdfview")
       groff_run_system_cmd("qpdfview --unique $output_file"$);
   }
-
-  variable status_str = strcompress("$preproc_opts $macro_package"$, " ");
-  % update the status line with the inferred macro package and
-  % preprocessor options
-  set_status_line("%b | %m $status_str (%a%n%o)  %p   %t"$, 0);
 }
 
 % Show the inferred groff command to convert the current document in
 % the message area or return it.
 define groff_return_or_show_cmd(show)
 {
-  variable cmd = sprintf("groff %s %s %s", groff_infer_preproc_options(),
-                                           groff_infer_macro_package(),
-                                           groff_get_other_options());
+  variable mp, preprocs, cmd;
+  variable other_opts = groff_get_other_options();
+
+  (mp, preprocs) = groff_infer_mp_and_preproc();
+  cmd = "groff $preprocs $mp $other_opts"$;
+
   cmd = strcompress(cmd, " ");
 
   if (show) return flush(cmd);
@@ -1098,6 +1137,7 @@ define groff_edit_cmd()
     Groff_Cmd = groff_return_or_show_cmd(0);
 
   Groff_Cmd = read_mini("Edit Groff Cmd:", "", Groff_Cmd);
+  groff_set_status_line(Groff_Cmd);
 }
 
 % Skip forwards to regular text parts of the document.
@@ -1186,8 +1226,9 @@ define groff_set_other_options()
 % returned.
 private define groff_set_tabcompletion_file()
 {
-  variable completion_file = "";
-  variable mp = groff_infer_macro_package();
+  variable completion_file = "", mp = "";
+
+  (mp,) = groff_infer_mp_and_preproc();
 
   ifnot (mp == "")
     mp = strtrim_beg(mp, "-");
@@ -1227,9 +1268,9 @@ private define groff_switch_buffer_hook(oldbuf)
 % the current buffer, not the file associated with the buffer-
 define groff_check_document()
 {
-  variable tmpfile = "/tmp/groff_check_document";
-  variable mp = groff_infer_macro_package();
+  variable mp = "", tmpfile = "/tmp/groff_check_document";
 
+  (mp,) = groff_infer_mp_and_preproc();
   push_spot(); mark_buffer();
   () = write_string_to_file(bufsubstr(), tmpfile);
   pop_spot();
@@ -1256,7 +1297,7 @@ define groff_help_for_macro()
     flush("info found no node, \"$kw\""$);
 }
 
-define insert_tab()
+define groff_insert_tab()
 {
   insert("\t");
 }
@@ -1297,7 +1338,7 @@ dfa_set_init_callback(&setup_dfa_callback, Mode);
 %{{{ Mode keymap
 
 ifnot (keymap_p(Mode)) make_keymap(Mode);
-definekey("insert_tab", Key_Shift_Tab, Mode);
+definekey("groff_insert_tab", Key_Shift_Tab, Mode);
 definekey("groff_help_for_macro", Key_F1, Mode);
 definekey("groff_preview_buffer", Key_F9, Mode);
 definekey_reserved("groff_check_document", "C", Mode);
@@ -1327,11 +1368,13 @@ private define groff_menu(menu)
   menu_append_item(menu, "Draw Some Items w/Gpic", "groff_gpic_mini_menu");
   menu_append_item(menu, "Draw Some Items w/Troff", "groff_draw");
   menu_append_item(menu, "Check document for errors", "groff_check_document");
-  menu_append_item(menu, "Insert Tab", "insert_tab");
+  menu_append_item(menu, "Insert Tab", "groff_insert_tab");
 }
 
 public define groff_mode()
 {
+  variable mp = "", preprocs = "";
+  
   set_mode(Mode, 4);
   set_buffer_hook("forward_paragraph_hook", "groff_goto_text_forwards");
   set_buffer_hook("backward_paragraph_hook", "groff_goto_text_backwards");
@@ -1340,7 +1383,8 @@ public define groff_mode()
   mode_set_mode_info(Mode, "init_mode_menu", &groff_menu);
   mode_set_mode_info(Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
   set_comment_info(Mode, "\.\\\" ", "", 0x04);
-  set_status_line("%b (%m) %a%n%o  %p   %t", 0);
+  (mp, preprocs) = groff_infer_mp_and_preproc();
+  groff_set_status_line("$preprocs $mp"$);
   use_keymap(Mode);
   run_mode_hooks("groff_mode_hook");
 
