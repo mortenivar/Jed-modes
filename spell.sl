@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.1, 2025-08-03
+%% Version: 0.9.4.2, 2025-08-15
 %%
 %}}}
 %{{{ Requires
@@ -180,7 +180,7 @@ private define spell_setup_syntax(tbl)
 
   Spell_Misspelled_Table = tbl;
   set_color("keyword", Spell_Misspelled_Color, "default");
-  define_syntax("${Spell_Extended_Wordchars}a-zA-Z0-9"$, 'w', Spell_Misspelled_Table);
+  define_syntax("${Spell_Extended_Wordchars}a-zA-Z"$, 'w', Spell_Misspelled_Table);
   use_syntax_table(Spell_Misspelled_Table);
 }
 
@@ -324,8 +324,11 @@ private define spell_set_status_line()
   }
 
   if (Spell_Use_Tabcompletion)
-    tabcomplete = "|tabcomplete";
-
+  {
+    ifnot (is_substr(Spell_Dict, ",")) % tabcompletion disabled w/multi dicts
+      tabcomplete = "|tabcomplete";
+  }
+  
   if (Spell_User_Cmd != NULL)
     backend = "($Spell_Dict) "$ + pcre_matches("^([a-z]+)", Spell_User_Cmd)[-1];
   else
