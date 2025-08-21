@@ -20,6 +20,10 @@ custom_variable("Groff_Paper_Format", "A4");
 % The encoding
 custom_variable("Groff_Encoding", "utf-8");
 
+% When processing the command line before previewing the buffer, pop up
+% a window, showing all warnings from the process, (groff -w w).
+custom_variable("Groff_Show_Warnings", 0);
+
 % The user defined groff command to convert the groff source file. The
 % standard is to use the mode's own detection mechanism based on the
 % contents of the document to set the macro package and preprocessor
@@ -33,7 +37,8 @@ custom_variable("Groff_Use_Tabcompletion", 0);
 
 private variable
   Groff_Data_Dir = "",
-  Version = "0.5.2",
+  Groff = "groff",
+  Version = "0.5.3",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -64,24 +69,39 @@ if (Groff_Fonts_User_Dir == NULL || Groff_Fonts_User_Dir == "")
   putenv("GROFF_FONT_PATH=$Groff_Fonts_User_Dir"$);
 }
 
-% Run a shell command and show a possible error message in a window
-private define groff_run_system_cmd(cmd)
+% Use the new_process() function for some IO.
+private define groff_popen(cmd)
 {
-  variable err_msg_file = "/tmp/system_err_msg";
-  variable wname = "***system error message***";
+  variable obj, w, err = "";
+  variable errbuff = "*** Groff Errors and/or Warnings ***";
+  
+  if (bufferp(errbuff))
+    delbuf(errbuff);
 
-  if (bufferp(wname))
-    delbuf(wname);
+  obj = new_process(cmd ;; __qualifiers); % pass all qualifiers
+  err = fgetslines(obj.fp2);
+  w = obj.wait(); % get some feedback from the process, including exit status
 
-  ifnot (0 == system("$cmd 2>$err_msg_file"$))
+  if (w.exit_status != 0 || Groff_Show_Warnings) % process failed or show warnings
   {
-    pop2buf(wname);
-    () = insert_file(err_msg_file);
-    bob();
-    set_buffer_modified_flag(0);
-    most_mode();
-    () = delete_file(err_msg_file);
-    throw RunTimeError, "an error occurred";
+    if (typeof(get_struct_field(obj, "fp2")) == File_Type)
+    {
+      if (length(strtrim(err)) == 1)
+	flush(err[0]);
+      else
+      {
+	pop2buf(errbuff);
+	insert(strjoin(err, ""));
+	set_buffer_modified_flag(0);
+	bob(); most_mode();
+	flush("type 'q' to close this window");
+      }
+    }
+
+    cmd = strjoin(cmd, " ");
+
+    if (w.exit_status != 0)
+      throw RunTimeError, "$cmd failed"$;
   }
 }
 
@@ -234,7 +254,8 @@ private define groff_get_all_lines()
 {
   variable lines_akk = String_Type[0];
   variable so_files = String_Type[0];
-  variable fp, so_file, so_file_n;
+  variable so_files_acc = String_Type[0];
+  variable fp, so_file;
 
   push_spot_bob(); push_mark();
   
@@ -247,19 +268,23 @@ private define groff_get_all_lines()
   eob();
   lines_akk = [lines_akk, strtok(bufsubstr(), "\n")];
   pop_spot();
-
-  foreach so_file (so_files)
+  so_files_acc = so_files;
+  _pop_n(_stkdepth);
+  
+  forever 
   {
-    while (search_file(so_file, "^\\.so", 10)) % get up to 10 references in each file
+    () = array_map(Int_Type, &search_file, so_files, "^\\.so ", 10);
+
+    if (_stkdepth)
     {
-      so_file_n = ();
-      so_file_n = strtok(so_file_n)[1];
-      so_files = [so_files, so_file_n];
-      so_file = so_file_n;
+      so_files = strtrim(list_to_array(__pop_list(_stkdepth())));
+      so_files = strtrim_beg(so_files, ".so ");
+      so_files_acc = [so_files_acc, so_files];
     }
+    else break;
   }
   
-  foreach so_file (so_files)
+  foreach so_file (so_files_acc)
   {
     fp = fopen(so_file, "r");
 
@@ -435,10 +460,12 @@ private define groff_infer_mp_and_preproc()
   if (length(preprocs) && maybe_needs_soelim)
     preprocs = ["-s", preprocs];
 
-  % this may not be guaranteed to work in all cases ...
+  % Heidelberger macros must be processed before the ms macros or the process
+  % freezes.
   if (any(".TBL" == macros_in_doc)) 
-    mp += " -m hdtbl";
+    mp = "-m hdtbl $mp"$;
 
+  % sboxes macros must be specified after the ms macros ...
   if (any(".BOXSTART" == macros_in_doc)) % sboxes
     mp += " -m sboxes";
 
@@ -447,7 +474,7 @@ private define groff_infer_mp_and_preproc()
 }
 
 % Return the values of some other groff options.
-define groff_get_other_options()
+private define groff_get_other_options()
 {
   variable opts = "-T$Groff_Output_Device -k -K $Groff_Encoding "$;
 
@@ -464,7 +491,7 @@ define groff_get_other_options()
 
 private define groff_set_status_line(args)
 {
-  set_status_line(strreplace(Status_Line_String, "%m", "%m " + args), 0);
+  set_status_line(strreplace(Status_Line_String, "%m", args), 0);
 }
 
 % The variable that holds the process id for the pdf viewer.
@@ -491,21 +518,21 @@ define groff_insert_font_name()
   insert(read_with_completion(groff_get_font_names(), "Font:", "", "", 's'));
 }
 
-%% Convert a truetype or open type font to a groff font and make
-%% it available to groff. It uses the environment variable
-%% GROFF_FONT_PATH as the installation target.
+%% Convert a truetype or open type font to a groff font and make it available
+%% to groff. It uses the environment variable GROFF_FONT_PATH as the
+%% installation target.
 define groff_install_font()
 {
   ifnot (2 == file_status(Groff_Fonts_User_Dir))
   {
     if (1 == get_y_or_n("the directory \"$Groff_Fonts_User_Dir\" does not exist, create it?"$))
-      groff_run_system_cmd("mkdir -p $Groff_Fonts_User_Dir"$);
+      groff_popen(["mkdir", "-p", Groff_Fonts_User_Dir]; write=2);
     else
       throw RunTimeError, "aborting font installation!";
   }
 
-  % The user defined font path should include only one directory. If
-  % it contains more, then use the first one in the list.
+  % The user defined font path should include only one directory. If it
+  % contains more, then use the first one in the list.
   if (length(strchop(Groff_Fonts_User_Dir, path_get_delimiter(), 0)) > 1)
   {
     Groff_Fonts_User_Dir = strchop(Groff_Fonts_User_Dir, path_get_delimiter(), 0)[0];
@@ -545,7 +572,7 @@ define groff_install_font()
     devpdf_dir = dircat(Groff_Fonts_User_Dir, "devpdf"),
     devps_dl_file = dircat(devps_dir, "download"),
     devpdf_dl_file = dircat(devpdf_dir, "download"),
-    convert_dir = make_tmp_file("/tmp/fontinstall"),
+    convert_dir = make_tmp_file("groff_fontinstall"),
     pe_file = dircat(convert_dir, "convert.pe"),
     pe_str = "Open ($1);\nGenerate($fontname + \".pfa\");\nGenerate(\$fontname + \".t42\");",
     Styles = Assoc_Type[String_Type, ""];
@@ -561,9 +588,8 @@ define groff_install_font()
     if (NULL == search_path_for_file(path, "fontforge"))
       throw OpenError, "fontforge is not installed"$;
 
-    % "textmap" was renamed from "textmap" to "text.map" in 2022. In
-    % case an older groff version is used, also check for the old
-    % filename.
+    % "textmap" was renamed from "textmap" to "text.map" in 2022. In case an
+    % older groff version is used, also check for the old filename.
     textmap = dircat(Groff_Data_Dir, "current/font/devpdf/map/text.map");
 
     ifnot (1 == file_status(textmap))
@@ -572,8 +598,7 @@ define groff_install_font()
     ifnot (1 == file_status(textmap))
       throw OpenError, "text.map file not found";
 
-    if (-1 == mkdir(convert_dir, 0755))
-      throw WriteError, "could not create $convert_dir"$;
+    groff_popen(["mkdir", "-p", convert_dir]; write=2);
 
     if (-1 == write_string_to_file(pe_str, pe_file))
       throw WriteError, "could not write to $pe_file"$;
@@ -584,7 +609,9 @@ define groff_install_font()
     (fam_name, style) = groff_get_font_family_and_style(font);
     fam_name = path_basename(fam_name);
     style_abbr = Styles[style];
-    groff_run_system_cmd("fontforge -script $pe_file \"$font\""$);
+
+    groff_popen(["fontforge", "-script", pe_file, font]; write=2);
+
     convertdir_files = listdir(convert_dir);
     afm_file = convertdir_files[wherefirst(array_map (String_Type,
                                                       &path_extname,
@@ -598,14 +625,14 @@ define groff_install_font()
                                                       &path_extname,
                                                       convertdir_files) == ".pfa")];
 
-    devps_dl_str = strcat(path_sans_extname(t42_file), "\t",
+    devps_dl_str = strcat(path_sans_extname(t42_file), "\\t",
                           path_basename(t42_file));
 
-    % The "download" file in the devpdf directory must have a leading
-    % tab character before each entry to satisfy gropdf
-    devpdf_dl_str = strcat("\t", path_sans_extname(pfa_file), "\t",
+    % The "download" file in the devpdf directory must have a leading tab
+    % character before each entry to satisfy gropdf
+    devpdf_dl_str = strcat("\\t", path_sans_extname(pfa_file), "\\t",
                            path_basename(pfa_file));
-
+    
     ifnot (1 == file_status(afm_file))
       throw OpenError, "$afm_file not found"$;
 
@@ -613,30 +640,32 @@ define groff_install_font()
     groff_font = strreplace(groff_font, " ", "-");
 
     if (is_list_element(groff_get_font_names, groff_font, ','))
+    {
       ifnot (get_y_or_n("$groff_font already appears to be installed, overwrite"$))
         throw AnyError;
-
-    groff_run_system_cmd("afmtodit -e $font_enc $afm_file $textmap $groff_font"$);
-    groff_run_system_cmd("mkdir -p $devps_dir"$);
-    groff_run_system_cmd("mkdir -p $devpdf_dir"$);
-    groff_run_system_cmd("chmod 0644 $groff_font $t42_file"$);
-    groff_run_system_cmd("cp $groff_font $t42_file $devps_dir"$);
-    groff_run_system_cmd("cp  $pfa_file $devpdf_dir"$);
-    groff_run_system_cmd("ln -s -f $devps_dir/$groff_font $devpdf_dir"$);
-    groff_run_system_cmd("echo '$devps_dl_str' >> $devps_dl_file"$);
-    groff_run_system_cmd("echo '$devpdf_dl_str' >> $devpdf_dl_file"$);
-    groff_run_system_cmd("sort -u $devps_dl_file | tee $devps_dl_file >/dev/null 2>&1"$);
-    groff_run_system_cmd("chmod 0755 $devpdf_dl_file $devps_dl_file"$);
+    }
+    
+    groff_popen(["afmtodit", "-e", font_enc, afm_file, textmap, groff_font]; write=2);
+    groff_popen(["mkdir", "-p", devps_dir, devpdf_dir]; write=2);
+    groff_popen(["chmod", "0644", groff_font, t42_file]; write=2);
+    groff_popen(["cp", groff_font, t42_file, devps_dir]; write=2);
+    groff_popen(["cp", pfa_file, devpdf_dir]; write=2);
+    groff_popen(["ln", "-s", "-f", "$devps_dir/$groff_font"$, devpdf_dir]; write=2);
+    groff_popen(["printf", devps_dl_str]; stdout=">>$devps_dl_file"$, write=2);
+    groff_popen(["printf", devpdf_dl_str]; stdout=">>$devpdf_dl_file"$, write=2);
+    groff_popen(["sort", "-u"]; stdin=devpdf_dl_file, stdout="/tmp/devpdf_dl_file", write=2);
+    groff_popen(["mv", "/tmp/devpdf_dl_file", devpdf_dl_file]; write=2);
+    groff_popen(["chmod", "0755", devpdf_dl_file, devps_dl_file]; write=2);
 
     if (1 == file_status(devps_dl_file))
-      groff_run_system_cmd("cp $devps_dl_file ${devps_dl_file}.bak"$);
+      groff_popen(["cp", devps_dl_file, "${devps_dl_file}.bak"$]; write=2);
     if (1 == file_status(devpdf_dl_file))
-      groff_run_system_cmd("cp $devpdf_dl_file ${devpdf_dl_file}.bak"$);
+      groff_popen(["cp", devpdf_dl_file, "${devpdf_dl_file}.bak"$]; write=2);
   }
   finally
   {
     () = chdir(pwd);
-    groff_run_system_cmd("rm -rf $convert_dir"$);
+    groff_popen(["rm", "-rf", convert_dir]; write=2);
   }
 
   flush("$groff_font installed in $Groff_Fonts_User_Dir"$);
@@ -759,32 +788,31 @@ define groff_preview_buffer()
   () = chdir(dir);
   () = write_string_to_file(str, tmpfile);
 
-  % If mandoc is installed use that for converting manual pages
-  if ((macro_package == "-man" || macro_package == "-mdoc") &&
-      NULL != search_path_for_file(getenv("PATH"), "mandoc"))
+  if (strlen(Groff_Cmd))
   {
-    cmd = "mandoc -K $Groff_Encoding -T $Groff_Output_Device $tmpfile"$;
-    groff_set_status_line("(mandoc)");
+    cmd = Groff_Cmd;
+    groff_set_status_line(cmd);
   }
   else
   {
-    cmd = "groff $preprocs $macro_package $other_opts $tmpfile 2>/dev/null"$;
-    groff_set_status_line("$preprocs $macro_package"$);
+    cmd = "$Groff $preprocs $macro_package $other_opts"$;
+    groff_set_status_line("$Groff $preprocs $macro_package"$);
   }
+  
+  cmd = strtok(cmd);
   
   switch (Groff_Output_Device)
   { case "ps" or case "pdf": output_file += ".pdf"; }
   { case "html" or case "xhtml": output_file += ".html"; }
   
-  if (strlen(Groff_Cmd))
-    cmd = "$Groff_Cmd $tmpfile 2>/dev/null"$;
+  groff_popen(cmd; write=2, stdin=tmpfile, stdout=output_file);
 
   if (Groff_Output_Device == "ps")
-    cmd += "| ps2pdf - >$output_file"$;
-  else
-    cmd += ">$output_file"$;
+  {
+    groff_popen(["ps2pdf", "-"]; write=2, stdin=output_file, stdout=tmpfile);
+    groff_popen(["mv", tmpfile, output_file]; write=2);
+  }
 
-  groff_run_system_cmd(cmd);
   () = remove(tmpfile);
   () = chdir(pwd);
 
@@ -829,9 +857,9 @@ define groff_preview_buffer()
     if (Groff_Pdf_Viewer == "mupdf") % mupdf wants a SIGHUP
       signal_process(Pdfviewer_Pid, 1);
     if (Groff_Pdf_Viewer == "xpdf")
-      groff_run_system_cmd("xpdf -remote $xpdfserver -reload"$);
+      groff_popen(["xpdf", "-remote", xpdfserver, "-reload"]; write=2);
     if (Groff_Pdf_Viewer == "qpdfview")
-      groff_run_system_cmd("qpdfview --unique $output_file"$);
+      groff_popen(["qpdfview", "--unique", output_file]; write=2);
   }
 }
 
@@ -843,7 +871,7 @@ define groff_return_or_show_cmd(show)
   variable other_opts = groff_get_other_options();
 
   (mp, preprocs) = groff_infer_mp_and_preproc();
-  cmd = "groff $preprocs $mp $other_opts"$;
+  cmd = "$Groff $preprocs $mp $other_opts"$;
 
   cmd = strcompress(cmd, " ");
 
@@ -1130,6 +1158,66 @@ define groff_gpic_mini_menu()
   { return flush(""); }
 }
 
+% Create a simple table with guidance.
+define groff_create_table()
+{
+  variable tbl_hdr = "", tbl_hdr_cell, tbl_cell = "", tbl_row = "", tbl_rows = "";
+  variable tbl_center = get_y_or_n("Center table on page");
+  variable n_cols = integer(read_mini("How many columns?", "", ""));
+  variable n_rows = integer(read_mini("How many rows?", "", ""));
+  variable hdr_align = read_mini("Header text alignment? (l)eft, (r)ight, (c)enter", "c", "");
+  variable col_align = read_mini("Column text alignment? (l)eft, (r)ight, (c)enter", "l", "");
+  variable grid = get_y_or_n("Show table grid");
+  variable i = 1, j = 1;
+
+  while (i <= n_cols)
+  {
+    tbl_hdr_cell = read_mini(sprintf("Text in header cell no. %d:", i), "", "");
+    tbl_hdr += "${tbl_hdr_cell}#"$;
+    i++;
+  }
+
+  tbl_hdr = strtrim_end(tbl_hdr, "#");
+
+  i = 1;
+
+  while (i <= n_rows)
+  {
+    while (j <= n_cols)
+    {
+      tbl_cell = read_mini(sprintf("Text in cell, row %d, col %d:", i, j), "", "");
+      tbl_row += "${tbl_cell}#"$;
+      j++;
+    }
+    
+    tbl_row = strtrim_end(tbl_row, "#");
+    tbl_rows += "${tbl_row}\n"$;
+    tbl_row = "";
+    j = 1;
+    i++;
+  }
+
+  if (tbl_center) tbl_center = "center";
+  else tbl_center = "";
+
+  if (grid) grid = "allbox";
+  else grid = "box";
+
+  variable col_class = "", col_aligns = "";
+  variable tbl_spec = "$grid $tbl_center tab\(#\);"$;
+
+  i = 0;
+
+  while (i < n_cols)
+  {
+    col_class += "${hdr_align}b "$;
+    col_aligns += "$col_align "$;
+    i++;
+  }
+  
+  insert(".TS\n$tbl_spec\n$col_class\n$col_aligns.\n$tbl_hdr\n$tbl_rows.TE"$);
+}
+
 % Edit and set the groff command used to convert the document
 define groff_edit_cmd()
 {
@@ -1350,8 +1438,8 @@ definekey_reserved("groff_insert_font_name", "n", Mode);
 definekey_reserved("groff_install_font", "f", Mode);
 definekey_reserved("groff_install_fonts_in_dir", "F", Mode);
 definekey_reserved("groff_set_other_options", "O", Mode);
+definekey_reserved("groff_create_table", "T", Mode);
 definekey_reserved("groff_edit_cmd", "e", Mode);
-
 %}}}
 
 private define groff_menu(menu)
@@ -1367,6 +1455,7 @@ private define groff_menu(menu)
   menu_append_item(menu, "Set Some Groff Options", "groff_set_other_options");
   menu_append_item(menu, "Draw Some Items w/Gpic", "groff_gpic_mini_menu");
   menu_append_item(menu, "Draw Some Items w/Troff", "groff_draw");
+  menu_append_item(menu, "Create a Simple Table", "groff_create_table");
   menu_append_item(menu, "Check document for errors", "groff_check_document");
   menu_append_item(menu, "Insert Tab", "groff_insert_tab");
 }
@@ -1384,9 +1473,13 @@ public define groff_mode()
   mode_set_mode_info(Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
   set_comment_info(Mode, "\.\\\" ", "", 0x04);
   (mp, preprocs) = groff_infer_mp_and_preproc();
-  groff_set_status_line("$preprocs $mp"$);
   use_keymap(Mode);
   run_mode_hooks("groff_mode_hook");
+
+  if (Groff_Show_Warnings)
+    Groff = "groff -w w";
+
+  groff_set_status_line("$Groff $preprocs $mp"$);
 
   % Enable the tabcompletion extension if wanted.
   if (Groff_Use_Tabcompletion)
