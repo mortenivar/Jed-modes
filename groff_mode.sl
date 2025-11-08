@@ -38,7 +38,7 @@ custom_variable("Groff_Use_Tabcompletion", 0);
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.3",
+  Version = "0.5.4",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -297,7 +297,7 @@ private define groff_get_all_lines()
 
 private define groff_get_macro(line)
 {
-  return pcre_matches("^\\.[-a-zA-Z0-9\(\)$]+", line)[0];
+  return pcre_matches("^\\.[-a-zA-Z0-9\(\)$[]+", line)[0];
 }
 
 % This counts all of the macros present in a document belonging to the six
@@ -438,7 +438,7 @@ private define groff_infer_mp_and_preproc()
   % associate the options for some preprocessors packages with their defining
   % macros
   PH[".cstart"] = "-j";     % chem
-  PH[".\\["]    = "-R";     % refer
+  PH[".\["]     = "-R";     % refer
   PH[".TS"]     = "-t";     % tbl
   PH[".EQ"]     = "-e";     % eqn
   PH[".GS"]     = "-g";     % grn
