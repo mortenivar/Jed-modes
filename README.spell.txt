@@ -83,7 +83,7 @@ with
 When loading a file, with the mode activated, all misspelled or unrecognized
 words will be highlighted at once, so you may quickly scroll through the
 buffer and take a note of which are actual misspellings. Spotting a
-misspeling, then use the "go to next/previous misspelled" function to
+misspelling, then use the "go to next/previous misspelled" function to
 quickly jump to it. If you're in doubt about its correct spelling, use the
 "suggest correction" function to have a menu with suggestions displayed and
 pick the right correction to have the misspelled word replaced. If the word
@@ -310,7 +310,7 @@ incompatible.
 
 is a custom spell checking command you may set. It will override the setting
 from the mode. You may use that to e.g. use an aspell custom command instead
-of enhchant. A command like e.g.
+of enchant. A command like e.g.
   
   Spell_User_Cmd = "aspell --sug-mode=bad-spellers --ignore=4 --run-together -d da -a"
 
