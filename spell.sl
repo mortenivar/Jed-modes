@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.2, 2025-08-15
+%% Version: 0.9.4.3, 2025-11-08
 %%
 %}}}
 %{{{ Requires
@@ -686,8 +686,17 @@ define spell_add_word_to_personal_dict()
 % Remove the color highlighting of a word marked as misspelled.
 define spell_remove_word_highligtning()
 {
-  variable word = spell_get_word();
+  variable misspelled_words, word = spell_get_word();
+
   () = remove_keywords(Spell_Misspelled_Table, word, strbytelen(word), 0);
+
+  if (blocal_var_exists("misspelled_words"))
+  {
+    misspelled_words = get_blocal_var("misspelled_words");
+    misspelled_words = misspelled_words[wherenot(misspelled_words == word)];
+    set_blocal_var(misspelled_words, "misspelled_words");
+  }
+
   call("redraw");
 }
 
