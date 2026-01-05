@@ -13,7 +13,7 @@ needed to convert the current document for a chosen output device.
                                   DOWNLOAD:
 
 
-It is easiest just to check out my repository on Gihub, it is only a few
+It is easiest just to check out my repository on Github, it is only a few
 kilobytes:
 
   git clone https://github.com/mortenivar/Jed-modes.git
@@ -74,6 +74,19 @@ explained later.
 
 The variables, "Groff_Output_Device", "Groff_Paper_Format", "Groff_Encoding"
 and "Groff_Cmd", may also be changed on the fly from within the editor.
+
+
+			      INSTALLING FONTS;
+			      
+The mode has an interface for installing groff font description files for
+truetype and opentype fonts. It is fine for most needs. However, if you
+desire access to the full spectrum of special glyphs that e.g. many of
+"nerd" font families contain, then the perl script, "ttffontinstall.pl" is a
+much better choice. It is not part of groff yet, but may be downloaded from
+https://savannah.gnu.org/bugs/?67700
+
+You may then search for and insert special glyphs like emojis, etc
+with "<ctrl>-c G" or with "Insert Glyph" from the menu.
 
 
                                    USAGE:
@@ -140,6 +153,12 @@ and "Groff_Cmd", may also be changed on the fly from within the editor.
 
 - <ctrl>-cd will display a one-line menu in the message area with items for
             drawing various figures with troff requests.
+
+- <ctrl>-cG will provide a search prompt in the minibuffer where you may
+	    type in an expression to match a glyph to be searched for in the
+	    installed font files. A buffer with the results (if any) will
+	    pop up and you may type in a number corresponding to the glyph
+	    you want.
 
 Finally, the keys for the functions, forward_paragraph() and
 backward_paragraph() will jump forward or backward to regular text portions
