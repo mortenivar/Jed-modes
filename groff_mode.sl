@@ -40,7 +40,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.5",
+  Version = "0.5.6",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -505,13 +505,6 @@ private define groff_pdfviewer_signal_handler(pid, flags, status)
     __uninitialize(&Pdfviewer_Pid);
 }
 
-% Insert a font name from a list of installed groff fonts
-define groff_insert_font_name()
-{
-  ungetkey('\t');
-  insert(read_with_completion(groff_get_font_names(), "Font:", "", "", 's'));
-}
-
 % Insert a groff character escape sequence for a chosen glyph.
 define groff_insert_glyph()
 {
@@ -608,6 +601,13 @@ private define groff_get_font_names()
 
   fontfiles = groff_sort_str_arr_unique(fontfiles);
   return strjoin(fontfiles, ",");
+}
+
+% Insert a font name from a list of installed groff fonts
+define groff_insert_font_name()
+{
+  ungetkey('\t');
+  insert(read_with_completion(groff_get_font_names(), "Font:", "", "", 's'));
 }
 
 %% Convert a truetype or open type font to a groff font and make it available
