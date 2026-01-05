@@ -35,10 +35,12 @@ custom_variable("Groff_Cmd", "");
 % 1 = enable, 0 = disable
 custom_variable("Groff_Use_Tabcompletion", 0);
 
+autoload ("most_exit_most", "most");
+
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.4",
+  Version = "0.5.5",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -87,14 +89,14 @@ private define groff_popen(cmd)
     if (typeof(get_struct_field(obj, "fp2")) == File_Type)
     {
       if (length(strtrim(err)) == 1)
-	flush(err[0]);
+        flush(err[0]);
       else
       {
-	pop2buf(errbuff);
-	insert(strjoin(err, ""));
-	set_buffer_modified_flag(0);
-	bob(); most_mode();
-	flush("type 'q' to close this window");
+        pop2buf(errbuff);
+        insert(strjoin(err, ""));
+        set_buffer_modified_flag(0);
+        bob(); most_mode();
+        flush("type 'q' to close this window");
       }
     }
 
@@ -184,14 +186,14 @@ private define groff_sort_str_arr_unique(a)
   return a[array_sort(a)];
 }
 
-% Return names of installed Groff fonts as a comma separated string.
-private define groff_get_font_names()
+% Return installed font description files with full paths
+private define groff_get_font_files()
 {
   variable
     fontdir = "",
-    first_lines = [""],
-    fontdirs = [""],
-    fontfiles = [""];
+    first_lines = String_Type[0],
+    fontdirs = String_Type[0],
+    fontfiles = String_Type[0];
 
   fontdirs = ["$Groff_Data_Dir/site-font/devpdf"$,
               "$Groff_Data_Dir/current/font/devpdf"$,
@@ -213,15 +215,7 @@ private define groff_get_font_names()
   % only Groff font files
   fontfiles = fontfiles[where(array_map(Int_Type, &string_match, first_lines,
                                                   "GNU afmtodit", 1))];
-
-  % Back to the basic font file names
-  fontfiles = array_map(String_Type, &path_basename, fontfiles);
-
-  ifnot (length(fontfiles))
-    throw RunTimeError, "no Groff font description files found";
-
-  fontfiles = groff_sort_str_arr_unique(fontfiles);
-  return strjoin(fontfiles, ",");
+  return fontfiles;
 }
 
 % Parse the font file name for a font family and a font style.
@@ -417,7 +411,7 @@ private define groff_infer_mp_and_preproc()
     foreach macro (macros_by_package[macro_package])
     {
       if (any(macro == macros_in_doc))
-	cnt++;
+        cnt++;
     }
 
     macro_package_cnt[macro_package] = cnt;
@@ -516,6 +510,104 @@ define groff_insert_font_name()
 {
   ungetkey('\t');
   insert(read_with_completion(groff_get_font_names(), "Font:", "", "", 's'));
+}
+
+% Insert a groff character escape sequence for a chosen glyph.
+define groff_insert_glyph()
+{
+  variable bufname, oldbuf, fontfile, fontfiles, str, exp, entry, code, descr, n, i = 0;
+  variable all_matches = String_Type[0];
+  variable matches = String_Type[0];
+  variable codes = String_Type[0];
+
+  fontfiles = groff_get_font_files();
+  exp = read_mini("Glyph search string:", "", "");
+  bufname = "***Glyphs Matching \"$exp\"***"$;
+  
+  foreach fontfile (fontfiles)
+  {
+    if (search_file(fontfile, exp, 100)) 
+    {
+      matches = __pop_list(_stkdepth());
+      matches = list_to_array(matches);
+
+      % glyphs that are registered but not mapped to groff character sequences
+      matches = matches[wherenot(array_map(Int_Type, &string_match, matches, "^---", 1))];
+
+      ifnot (length(matches))
+        continue;
+
+      % mapped glyphs
+      matches = matches[where(array_map(Int_Type, &string_match, matches, "^u", 1))];
+
+      _for i (0, length(matches)-1, 1)
+      {
+        % catch character code and description
+        str = pcre_matches("^(u.*?\\h+).*?([-a-z_]+)", matches[i]);
+        code = str[1];
+        descr = str[2];
+
+        % we don't want duplicated codes from different fonts or different
+        % flavors of the same font, regular, bold, italic ...
+        ifnot (any(code == codes))
+        {
+          fontfile = path_basename(fontfile);
+          entry = sprintf("%-10s %s %s", fontfile, code, descr);
+          all_matches = [all_matches, entry];
+          codes = [codes, code];
+        }
+      }
+    }
+  }
+
+  ifnot (length(all_matches))
+    error("nothing matched \"$exp\""$);
+
+  all_matches = array_map(String_Type, &sprintf, "%d. %s",
+			  [0:length(all_matches)-1], all_matches);
+
+  oldbuf = pop2buf_whatbuf(bufname);
+  insert(strjoin(all_matches, "\n"));
+  set_buffer_modified_flag(0);
+  most_mode();
+  bob();
+  n = read_mini("Type number of the glyph to insert ('q' to quit):", "", "");
+
+  if (n == "q")
+  {
+    delbuf(bufname);
+    return most_exit_most();
+  }
+
+  entry = all_matches[integer(n)];
+  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &code, &descr);
+  delbuf(bufname);
+  sw2buf(oldbuf);
+  onewindow();
+  str = "\\f\[$fontfile\]\\\[$code\]\\f\[\]"$;
+  insert(str);
+}
+
+% Return names of installed Groff fonts as a comma separated string.
+private define groff_get_font_names()
+{
+  variable
+    fontdir = "",
+    first_lines = String_Type[0],
+    fontdirs = String_Type[0],
+    fontfiles = String_Type[0];
+
+  fontdirs = ["$Groff_Data_Dir/site-font/devpdf"$,
+              "$Groff_Data_Dir/current/font/devpdf"$,
+              "$Groff_Fonts_User_Dir/devpdf"$];
+
+  fontfiles = array_map(String_Type, &path_basename, groff_get_font_files());
+
+  ifnot (length(fontfiles))
+    throw RunTimeError, "no Groff font description files found";
+
+  fontfiles = groff_sort_str_arr_unique(fontfiles);
+  return strjoin(fontfiles, ",");
 }
 
 %% Convert a truetype or open type font to a groff font and make it available
@@ -953,8 +1045,8 @@ define groff_toggle_inline_markup()
   ifnot (strlen(str))
     throw UsageError, "you must mark some word(s)";
 
-  if (string_match(str, "\\\\", 1))
-    return insert(str_uncomment_string(bufsubstr_delete(), "\\[", "]\\"));
+  % if (string_match(str, "\\\\", 1))
+  %   return insert(str_uncomment_string(bufsubstr_delete(), "\\[", "]\\"));
 
   flush("Text Attributes: (f)ont face, (b)old, (i)talic, (s)ize:, (c)olor, (q)uote");
 
@@ -1415,6 +1507,7 @@ static define setup_dfa_callback(Mode)
   dfa_define_highlight_rule("\\\\n\\[.*\\]", "keyword1", Mode); % registers
   dfa_define_highlight_rule("\\\\[\\-'0\\^\!%\\\\abcCdDefghHklmLnNoprsStuvwxXzZ" +
                             "\\|\{\}\\(&]", "keyword1", Mode);
+  dfa_define_highlight_rule("\\\\\\[[a-zA-Z0-9_]+\\]", "number", Mode); % e.g. \[u041E_0308]
 
   dfa_build_highlight_table(Mode);
   enable_dfa_syntax_for_mode(Mode);
@@ -1431,6 +1524,7 @@ definekey("groff_help_for_macro", Key_F1, Mode);
 definekey("groff_preview_buffer", Key_F9, Mode);
 definekey_reserved("groff_check_document", "C", Mode);
 definekey_reserved("groff_return_or_show_cmd(1)", "g", Mode);
+definekey_reserved("groff_insert_glyph", "G", Mode);
 definekey_reserved("groff_draw", "d", Mode);
 definekey_reserved("groff_gpic_mini_menu", "p", Mode);
 definekey_reserved("groff_toggle_inline_markup", "i", Mode);
@@ -1457,6 +1551,7 @@ private define groff_menu(menu)
   menu_append_item(menu, "Draw Some Items w/Troff", "groff_draw");
   menu_append_item(menu, "Create a Simple Table", "groff_create_table");
   menu_append_item(menu, "Check document for errors", "groff_check_document");
+  menu_append_item(menu, "Insert Glyph", "groff_insert_glyph");
   menu_append_item(menu, "Insert Tab", "groff_insert_tab");
 }
 
