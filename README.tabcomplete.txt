@@ -270,9 +270,9 @@ two characters. Set to '1' to enable.
 
   variable Match_Is_Case_Insensitive = 0;
   
-It controls whether the letters before the editing point that are to be
-completed, will be matched to the possible completions in the completion
-file in a case insensitive manner. It defaults to '0'.  
+When matching the letters before the editing point to the possible
+completion candidates, should the matching be case insensitive? Set to '1'
+to enable.
 
 All of these variables should first be entered globally in your ~/.jedrc
 with your preferred default values (or no values) and then possibly fine
@@ -306,10 +306,11 @@ completions file. E.g. with aspell:
 this would dump all words from aspell's French dictionary into the hidden
 file ".tabcomplete_fr" in your home directory.
 
-	       7. Use Tabcomplete With the spell.sl Extension:
+                       7. Use Tabcomplete With spell.sl
 
-If you have installed the spell.sl spell checking extension, then you may
-use it to autoload completion files that match your spell checking language.
+If you have installed the enchant2 spell checking wrapper program and a
+spell checker along with spell.sl spell checking extension, then you may use
+it to autoload completion files that match your spell checking language.
 E.g., when writing emails, it is normal to write in different languages, so
 if you also want to be able to complete words, it would be convenient to
 have a completion file for e.g. English loaded when spell checking in that
