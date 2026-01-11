@@ -1,1 +1,2 @@
-*.sl linguist-detectable=true
+*.sl linguist-language=S-Lang
+
