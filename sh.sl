@@ -20,7 +20,7 @@ custom_variable("SH_Shellcheck_Severity_Level", "style");
 
 private variable
   Mode = "SH",
-  Version = "0.6.6",
+  Version = "0.6.7",
   SH_Indent_Kws,
   SH_Indent_Kws_Re,
   SH_Shellcheck_Error_Color = color_number("preprocess"),
@@ -230,8 +230,6 @@ private define sh_is_char_unbalanced(ch1, ch2)
 {
   variable ch1_n = count_char_occurrences(sh_line_as_str(), ch1);
   variable ch2_n = count_char_occurrences(sh_line_as_str(), ch2);
-
-  % if (ch1_n == 0 && ch2_n == 0) return 0;
 
   if (ch1_n > 0)
     if ((ch1_n - ch2_n) mod 2 || ch2_n == 0) return 1; % ch1
@@ -470,28 +468,10 @@ private define sh_indent_line()
     return sh_indent_spaces(Indent);
   }
 
-  % If a line where keyword detection returns NULL follows another
-  % similar line, stop backtracking and indent to column of previous line.
-  if (Indent >= 0)
-  {
-    if (sh_this_kw == NULL)
-    {
-      if (up(1))
-      {
-        if (NULL == sh_get_indent_kw())
-        {
-          go_down_1();
-          return sh_indent_spaces(Indent);
-        }
-      }
-      go_down_1();
-    }
-  }
-  
   % bactracks to find previous keyword that is not NULL and its column
   (sh_prev_kw, sh_prev_kw_col) = sh_get_prev_kw_and_col();
 
-  % Align a 'do' keyword on a line by itself to its loop keywords
+	% Align a 'do' keyword on a line by itself to its loop keywords
   if ((sh_this_kw == "do") && (any(sh_prev_kw == ["for","while","until","select"])))
   {
     Indent = sh_prev_kw_col;
@@ -528,7 +508,8 @@ private define sh_indent_line()
     return sh_indent_spaces(Indent);
   }
 
-  variable indent_after_kws = ["if","for","while","then","do","case","else","elif","{","(", "case_pat","}{"];
+  variable indent_after_kws = ["if","for","while","then","do","case","else",
+															 "elif","{","(", "case_pat","}{"];
 
   % Indent lines following these keywords
   if (any(sh_prev_kw == indent_after_kws))
@@ -698,7 +679,7 @@ define sh_index_shellcheck_errors()
   }
   pop_spot();
   call("redraw");
-  vmessage("found %d lines with issues", length(SH_Shellcheck_Lines));
+  vmessage("found %d issues", length(SH_Shellcheck_Lines));
   set_blocal_var(1, "SH_Shellcheck_Indexed");
 }
 
@@ -750,54 +731,30 @@ define sh_show_on_shellcheck_wiki()
 % Execute the code in a marked region or the entire buffer if no region
 % is marked. This ensures that the code is executed in the shell which
 % is specified the shebang directive. The output from the execution
-% is shown in another window if more than one line. If the output is
-% only one line, it is diplayed in the message area.
-% NOTE: It only works for non-interactive scripts.
+% is shown in another window.
 define sh_exec_region_or_buffer()
 {
-  variable lines, cmd, str, output, fp, shell;
+  variable str, shell;
   % extract the shell name from the shebang directive
   variable shell_re = "^#!\\h*/[a-z]+(?:env)?.*?([a-z]+)(?:\\h-e)?$";
   variable tmpfile = make_tmp_file("/tmp/shmode");
-  variable outfile = make_tmp_file("/tmp/shmode_out");
-  variable env_prg = search_path_for_file (getenv("PATH"), "env");
+  variable env_prg = search_path_for_file(getenv("PATH"), "env");
   
   push_spot_bob();
   shell = pcre_matches(shell_re, sh_line_as_str())[-1];
   pop_spot();
-
   if (shell == NULL) shell = "sh";
+  push_spot();
+  ifnot (markp()) mark_buffer ();
+  str = bufsubstr();
+  pop_spot();
+  () = write_string_to_file(str, tmpfile);
+  () = system("chmod +x $tmpfile"$);
+  () = run_program("clear; $env_prg $shell $tmpfile; "$ +
+                   "echo \"\n\n\033[7mPress <enter> to return to editor" +
+                   "...\033[0m\" ; read a");
 
-  try
-  {
-    push_spot();
-    ifnot (markp()) mark_buffer ();
-    str = bufsubstr();
-    pop_spot();
-    () = write_string_to_file(str, tmpfile);
-    cmd = "$env_prg $shell $tmpfile >$outfile 2>&1"$;
-    () = system(cmd);
-    fp = fopen(outfile, "r");
-    if (fp == NULL) throw ReadError, "could not read $outfile"$;
-    lines = fgetslines(fp);
-    () = fclose(fp);
-    output = strtrim(strjoin(lines, ""));
-  }
-  finally
-  {
-    () = remove(outfile);
-    () = remove(tmpfile);
-  }
-  
-  if (length(lines) > 1)
-  {
-    pop2buf("***Output From ${cmd}***"$);
-    insert(output);
-    bob();
-    most_mode();
-    flush("type 'q' to close this window");
-  }
-  else flush(output);
+  () = remove(tmpfile);
 }
 
 define sh_electric_right_brace()
