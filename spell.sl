@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.3, 2025-11-08
+%% Version: 0.9.4.4, 2026-01-17
 %%
 %}}}
 %{{{ Requires
@@ -125,7 +125,7 @@ private define spell_popen(cmd)
 private define spell_pcre_replace(str, pat, rep)
 {
   pat = pcre_compile(pat);
-  
+
   if (pcre_exec(pat, str))
   {
     variable match = pcre_nth_substr(pat, str, 0);
@@ -238,7 +238,7 @@ private define spell_repl_with_sugg()
 
   if (signed == "&")
     Suggestions = strtok(Suggestions, ":")[1]; 
-    
+
   suggs = strtok(Suggestions);
   sugg = spell_select_from_mini(suggs);
 
@@ -316,7 +316,7 @@ private define spell_set_status_line()
 
   if (blocal_var_exists("spell_dict"))
     Spell_Dict = get_blocal_var("spell_dict");
-    
+
   if (blocal_var_exists("spell_flyspell"))
   {
     if (1 == get_blocal_var("spell_flyspell"))
@@ -328,15 +328,15 @@ private define spell_set_status_line()
     ifnot (is_substr(Spell_Dict, ",")) % tabcompletion disabled w/multi dicts
       tabcomplete = "|tabcomplete";
   }
-  
+
   if (Spell_User_Cmd != NULL)
     backend = "($Spell_Dict) "$ + pcre_matches("^([a-z]+)", Spell_User_Cmd)[-1];
   else
     backend = spell_popen(["enchant-lsmod-2", "-lang",
-			   Spell_Dict]; write={1,2})[0];
+                           Spell_Dict]; write={1,2})[0];
 
   set_status_line(strreplace(Status_Line_String,
-			     "%m", "%m " + backend + fly + tabcomplete), 0);
+                             "%m", "%m " + backend + fly + tabcomplete), 0);
 }
 
 private define spell_set_cmd(dict)
@@ -356,7 +356,7 @@ private define spell_highlight_misspelled(Spell_Pid, str)
 
   Suggestions = "";
   str = strtrim(str);
-  
+
   % '*' is for a correctly spelled word found in the word list
   % '-' is for a word recognized as a compound word where its
   %     individual parts are spelled correctly.
@@ -384,21 +384,24 @@ private define spell_check_word()
 
   if (Spell_Ignore_Words_Without_Vowels)
     ifnot (spell_str_has_vowels(Word)) return;
-  
-  if (Word == Prev_Word)
-    flush("double word");
-  
-  Prev_Word = Word;
 
-  variable checked_words = get_blocal_var("checked_words");
+  if (blocal_var_exists("checked_words"))
+  {
+    if (Word == Prev_Word)
+      flush("double word");
 
-  % don't check already checked words that are not misspelled
-  ifnot (Is_Mispelled)
-    if (assoc_key_exists(checked_words, Word)) return;
+    Prev_Word = Word;
 
-  checked_words[Word] = "";
-  set_blocal_var(checked_words, "checked_words");
-  
+    variable checked_words = get_blocal_var("checked_words");
+
+    % don't check already checked words that are not misspelled
+    ifnot (Is_Mispelled)
+      if (assoc_key_exists(checked_words, Word)) return;
+
+    checked_words[Word] = "";
+    set_blocal_var(checked_words, "checked_words");
+  }
+
   send_process(Spell_Pid, "${Word}\n"$);
   get_process_input(3);
 }
@@ -442,14 +445,14 @@ private define spell_start_flyspell_process()
   spell_set_cmd(Spell_Dict); % Spell_Cmd is set here
   args = strtok(Spell_Cmd);
   setbuf(spellbuf);
-  
+
   foreach (args);
   length(args) - 1;
   Spell_Pid = open_process();
 
   set_process(Spell_Pid, "signal", &spell_signal_handler);
   set_process(Spell_Pid, "output", &spell_highlight_misspelled);
-  
+
   % The flyspell check of the very first misspelled word will be sluggish,
   % because the spell checker has to initialize its interface of suggestions.
   % If one then keeps typing before it has properly finished, the subsequent
@@ -514,7 +517,7 @@ private define spell_get_strs_and_cmts()
         }
         else eol();
       }
-      
+
       strs = [strs, bufsubstr()];
       skip_chars(Cmt_Prefix_End);
     }
@@ -643,7 +646,7 @@ define spell_add_word_to_personal_dict()
 
   if (blocal_var_exists("spell_dict"))
     dict = get_blocal_var("spell_dict");
-  
+
   if (blocal_var_exists("personal_dict"))
   {
     pers_word_list = get_blocal_var("personal_dict");
@@ -651,12 +654,12 @@ define spell_add_word_to_personal_dict()
     if (NULL != pers_word_list)
     {
       if (Spell_Prg == "aspell")
-	Spell_Personal_Dict = expand_filename("~/.aspell.${dict}.pws"$);
+        Spell_Personal_Dict = expand_filename("~/.aspell.${dict}.pws"$);
       else
-	Spell_Personal_Dict = "${enchant_conf_dir}/$pers_word_list"$;
+        Spell_Personal_Dict = "${enchant_conf_dir}/$pers_word_list"$;
     }
   }
-    
+
   % If word is added to the personal wordlist, it means that it should not
   % be seen as misspelled anymore and therefore it should also be removed from
   % the array of misspelled words.
@@ -704,7 +707,7 @@ define spell_remove_word_highligtning()
 define spell_select_dictionary()
 {
   variable dicts = spell_get_dicts(), dict, spell_dicts;
-  
+
   if (blocal_var_exists("spell_dict"))
     Spell_Dict = get_blocal_var("spell_dict");
 
@@ -713,12 +716,12 @@ define spell_select_dictionary()
                                     Spell_Dict, "", 's');
 
   spell_dicts = strtok(Spell_Dict, ","); % multiple dictionaries may be specified
-    
+
   foreach dict (spell_dicts)
   {
     ifnot (is_list_element(dicts, strtrim(dict), ','))
       throw RunTimeError, "you set Spell_Dict to \"$Spell_Dict\" but dictionary,"$ +
-                          "\"$dict\", is not installed"$;
+      "\"$dict\", is not installed"$;
   }
 
   if (blocal_var_exists("spell_dict"))
@@ -786,7 +789,7 @@ public define spell_buffer()
   }
   else
     dict = get_blocal_var("spell_dict");
- 
+
   (, mode_flags) = what_mode();
 
   if (mode_flags > 1) % programming language modes -> only check comments/strings
@@ -826,20 +829,20 @@ public define spell_buffer()
 
   () = remove(tmpfile);
   () = remove(tmpfile1);
-  
+
   if (misspelled_words == NULL) return;
 
   ifnot (length(misspelled_words))
     return flush("no spelling errors found");
 
   misspelled_words = misspelled_words[where(array_map(Int_Type, &strlen,
-                                            misspelled_words) >
-                                            Spell_Minimum_Wordsize)];
+                                                      misspelled_words) >
+                                                      Spell_Minimum_Wordsize)];
 
   if (Spell_Ignore_Words_Without_Vowels)
     misspelled_words = misspelled_words[where(array_map(Int_Type,
-                                              &spell_str_has_vowels(),
-                                              misspelled_words))];
+                                                        &spell_str_has_vowels(),
+                                                        misspelled_words))];
 
   if (blocal_var_exists("misspelled_words"))
     set_blocal_var(misspelled_words, "misspelled_words");
@@ -873,15 +876,15 @@ public define spell_buffer()
 define spell_goto_misspelled(dir)
 {
   variable misspelled_words;
-  
+
   if (blocal_var_exists("misspelled_words"))
   {
     misspelled_words = get_blocal_var("misspelled_words");
-    
+
     ifnot (length(misspelled_words))
       return flush("you must spell check the buffer first");
   }
-  
+
   if (dir < 0)
   {
     while (not (bobp()))
@@ -908,7 +911,7 @@ private variable Mode = "spell";
 
 % The keymap for the mode
 ifnot (keymap_p(Mode))
-  copy_keymap(Mode, what_keymap());
+copy_keymap(Mode, what_keymap());
 
 definekey("spell_goto_misspelled(1)", Key_Shift_Down, Mode);
 definekey("spell_goto_misspelled(-1)", Key_Shift_Up, Mode);
@@ -937,41 +940,34 @@ append_to_hook ("load_popup_hooks", &spell_popup_menu);
 %{{{ Minor mode initialization
 define spell_init()
 {
-  ifnot (blocal_var_exists("checked_words"))
-    define_blocal_var("checked_words", Assoc_Type[String_Type, ""]);
-
-  ifnot (blocal_var_exists("misspelled_words"))
-    define_blocal_var("misspelled_words", String_Type[0]);
-
-  ifnot (blocal_var_exists("spell_flyspell"))
-    define_blocal_var("spell_flyspell", Spell_Flyspell);
+  define_blocal_var("checked_words", Assoc_Type[String_Type, ""]);
+  define_blocal_var("misspelled_words", String_Type[0]);
+  define_blocal_var("spell_flyspell", Spell_Flyspell);
 
   spell_get_dict(); % Spell_Dict is set here
 
   % With multiple dictionaries specified, whitespace is not accepted
   Spell_Dict = str_delete_chars(Spell_Dict, "\\s");
 
-  ifnot (blocal_var_exists("spell_dict"))
-    define_blocal_var("spell_dict", Spell_Dict);
+  define_blocal_var("spell_dict", Spell_Dict);
 
   if (Spell_Personal_Dict == NULL)
     Spell_Personal_Dict = "${Spell_Dict}.dic"$;
 
-  ifnot (blocal_var_exists("personal_dict"))
-    define_blocal_var("personal_dict", Spell_Personal_Dict);
+  define_blocal_var("personal_dict", Spell_Personal_Dict);
 
   if (Spell_User_Cmd == NULL)
     Spell_Cmd = "enchant-2 -d $Spell_Dict -a"$;
   else
     Spell_Cmd = Spell_User_Cmd;
-  
+
   Spell_Misspelled_Table = whatbuf();
   spell_setup_syntax(Spell_Misspelled_Table);
   spell_check_dict(Spell_Dict);
   use_keymap(Mode);
   spell_set_status_line();
   Spell_Prg = strtok(Spell_Cmd)[0];
-  
+
   if (NULL == search_path_for_file(getenv("PATH"), Spell_Prg))
     return flush("Could not find \"$Spell_Prg\", spell checking disabled."$);
 
