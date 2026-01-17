@@ -181,6 +181,7 @@ in your ~/.jedrc, insert:
     Extended_Wordchars = "-_.\\\\[\]*";
     Newl_Delim = "\t";
     Groff_Use_Tabcompletion = 1;
+    spell_init();
   }
 
 
@@ -225,14 +226,14 @@ selection. Hitting <tab> after a ".gcolor" request pops up a window with all
 the defined groff color names.
 
 
-                       Using the aspell.sl extension:
+                       Using the spell.sl extension:
 
 
-The "init_aspell();" line, as shown in the mode hook above, will enable
+The "spell_init();" line, as shown in the mode hook above, will enable
 spell checking, including flyspelling, for your groff documents.
 You must have the line
 
-   autoload("init_aspell", "aspell");
+   autoload("spell_init", "spell");
 
 in your ~/.jedrc
 
