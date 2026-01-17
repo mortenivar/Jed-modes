@@ -127,9 +127,7 @@ You can find out what your shell environment sees as your keysyms by typing
               line first with one of the two key combos above.
 
 <ctrl>-c E    Execute code in a marked region or if no region is marked then
-              in the whole buffer whole buffer. If output is more than one
-              line long, the output will be shown in another window, else it
-              will be shown in the message area.
+              in the whole buffer whole buffer.
 
 <ctrl>-pgup,  briefly show the matching keyword that begins a code block or
               sub-block, if standing on the keyword that ends the block.
@@ -194,8 +192,7 @@ defining a string syntax with the define_syntax() function and then using
 the parse_to_point() function to detect these false positives, but this
 solution seems to have worse effects.
 
-
- (probably several others)
+(probably several others)
 
 
 Morten Bo Johansen, <morten.bo.johansen@gmail.com>
