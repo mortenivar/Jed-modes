@@ -40,7 +40,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.6",
+  Version = "0.5.6.1",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -557,7 +557,7 @@ define groff_insert_glyph()
     error("nothing matched \"$exp\""$);
 
   all_matches = array_map(String_Type, &sprintf, "%d. %s",
-			  [0:length(all_matches)-1], all_matches);
+        [0:length(all_matches)-1], all_matches);
 
   oldbuf = pop2buf_whatbuf(bufname);
   insert(strjoin(all_matches, "\n"));
@@ -567,10 +567,7 @@ define groff_insert_glyph()
   n = read_mini("Type number of the glyph to insert ('q' to quit):", "", "");
 
   if (n == "q")
-  {
-    delbuf(bufname);
     return most_exit_most();
-  }
 
   entry = all_matches[integer(n)];
   () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &code, &descr);
@@ -1559,7 +1556,7 @@ public define groff_mode()
 {
   variable mp = "", preprocs = "";
   
-  set_mode(Mode, 4);
+  set_mode(Mode, 1);
   set_buffer_hook("forward_paragraph_hook", "groff_goto_text_forwards");
   set_buffer_hook("backward_paragraph_hook", "groff_goto_text_backwards");
   use_syntax_table(Mode);
