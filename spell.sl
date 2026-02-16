@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.4, 2026-01-17
+%% Version: 0.9.4.5, 2026-02-16
 %%
 %}}}
 %{{{ Requires
@@ -65,10 +65,6 @@ autoload("add_keywords", "syntax");
 autoload("remove_keywords", "syntax");
 autoload("fold_open_buffer", "folding");
 autoload("get_comment_info", "comments");
-#ifnexists init_tabcomplete
-if (strlen (expand_jedlib_file ("tabcomplete.sl")))
-  autoload ("init_tabcomplete", "tabcomplete");
-#endif
 %}}}
 %{{{ Prototypes
 define spell_add_word_to_personal_dict();
@@ -585,8 +581,9 @@ private define load_tabcompletion ()
   }
   catch OpenError:
   {
-    flush("could not load .tabcomplete_$Spell_Dict"$);
-    sleep(1);
+    Spell_Use_Tabcompletion = 0;
+    flush("WARNING: could not load .tabcomplete_$Spell_Dict"$);
+    sleep(2);
   }
 }
 
@@ -982,6 +979,11 @@ define spell_init()
 
   if (Spell_Use_Tabcompletion)
   {
+#ifnexists init_tabcomplete
+    if (strlen (expand_jedlib_file ("tabcomplete.sl")))
+      autoload ("init_tabcomplete", "tabcomplete");
+#endif
+
     ifnot (is_substr(Spell_Dict, ",")) % don't load with multiple dictionaries
       load_tabcompletion ();
   }
