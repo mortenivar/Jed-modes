@@ -31,21 +31,18 @@ custom_variable("Groff_Show_Warnings", 0);
 % is set, then it will override the detection mechanism.
 custom_variable("Groff_Cmd", "");
 
-% Use tab completion (with tabcomplete.sl)
-% 1 = enable, 0 = disable
-custom_variable("Groff_Use_Tabcompletion", 0);
-
 autoload ("most_exit_most", "most");
 
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.6.1",
+  Version = "0.5.7.0",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
   Groff_Fonts_User_Dir = getenv("GROFF_FONT_PATH"),
   Groff_Paper_Orientation = "",
+  Macropkg = "",
   Xdg_Data_Home = getenv("XDG_DATA_HOME");
 
 % Where are the groff data files installed.
@@ -76,7 +73,7 @@ private define groff_popen(cmd)
 {
   variable obj, w, err = "";
   variable errbuff = "*** Groff Errors and/or Warnings ***";
-  
+
   if (bufferp(errbuff))
     delbuf(errbuff);
 
@@ -145,7 +142,7 @@ private define groff_mark_word()
 
 % Look for a program in $PATH from a list of programs delimited by a
 % space and return the first one found
-private define groff_find_prgs_use_first(prgs)
+private define groff_use_first_prg_found(prgs)
 {
   variable
     prgs_arr = strtok(prgs),
@@ -252,7 +249,7 @@ private define groff_get_all_lines()
   variable fp, so_file;
 
   push_spot_bob(); push_mark();
-  
+
   while(bol_fsearch(".so"))
   {
     so_file = strtok(line_as_string())[1];
@@ -264,7 +261,7 @@ private define groff_get_all_lines()
   pop_spot();
   so_files_acc = so_files;
   _pop_n(_stkdepth);
-  
+
   forever 
   {
     () = array_map(Int_Type, &search_file, so_files, "^\\.so ", 10);
@@ -277,7 +274,7 @@ private define groff_get_all_lines()
     }
     else break;
   }
-  
+
   foreach so_file (so_files_acc)
   {
     fp = fopen(so_file, "r");
@@ -285,13 +282,13 @@ private define groff_get_all_lines()
     if (fp != NULL)
       lines_akk = [lines_akk, fgetslines(fp)];
   }
-  
+
   return lines_akk;
 }
 
 private define groff_get_macro(line)
 {
-  return pcre_matches("^\\.[-a-zA-Z0-9\(\)$[]+", line)[0];
+  return pcre_matches("^\\.[-_a-zA-Z0-9\(\)$[]+", line)[0];
 }
 
 % This counts all of the macros present in a document belonging to the six
@@ -397,12 +394,12 @@ private define groff_infer_mp_and_preproc()
      ".Re",".Rs",".Rv",".Sc",".Sh",".Sm",".So",".Sq",".St",".Sx",".Sy",".Tn",
      ".Ud",".Ux",".Va",".Vt",".Xc",".Xo",".Xr",".Xx"
     ];
-  
+
   lines = groff_get_all_lines();
   macro_packages = assoc_get_keys(macros_by_package);
   macros_in_doc = array_map(String_Type, &groff_get_macro, lines);
   macros_in_doc = macros_in_doc[wherenot(_isnull(macros_in_doc))];
-  
+
   if (any(".so" == macros_in_doc)) 
     maybe_needs_soelim = 1;
 
@@ -417,7 +414,7 @@ private define groff_infer_mp_and_preproc()
     macro_package_cnt[macro_package] = cnt;
     cnt = 0;
   }
-  
+
   max_cnt = max(assoc_get_values(macro_package_cnt));
 
   % the macro package that has the highest number of its macros in the document
@@ -425,10 +422,10 @@ private define groff_infer_mp_and_preproc()
     mp = assoc_get_keys(macro_package_cnt)[wherefirst(assoc_get_values(macro_package_cnt) == max_cnt)];
   else
     mp = ""; % pure nroff/troff apparently
-  
+
   variable preproc, PH = Assoc_Type[String_Type];
   variable preprocs = String_Type[0];
-  
+
   % associate the options for some preprocessors packages with their defining
   % macros
   PH[".cstart"] = "-j";     % chem
@@ -438,7 +435,7 @@ private define groff_infer_mp_and_preproc()
   PH[".GS"]     = "-g";     % grn
   PH[".G1"]     = "-G";     % grap
   PH[".PS"]     = "-p";     % pic
-  
+
   % Detect and accumulate all possibly needed preprocessors
   foreach preproc (assoc_get_keys(PH))
   {
@@ -465,22 +462,6 @@ private define groff_infer_mp_and_preproc()
 
   preprocs = strjoin(preprocs, " ");
   return mp, preprocs;
-}
-
-% Return the values of some other groff options.
-private define groff_get_other_options()
-{
-  variable opts = "-T$Groff_Output_Device -k -K $Groff_Encoding "$;
-
-  if (any(Groff_Output_Device == ["ps","pdf"]))
-  {
-    if (Groff_Paper_Orientation == "l")
-      opts += "-d paper=${Groff_Paper_Format}l -P-p$Groff_Paper_Format -P-l"$;
-    else
-      opts += "-dpaper=${Groff_Paper_Format} -P-p$Groff_Paper_Format"$;
-  }
-  else if (any(Groff_Output_Device == ["html", "xhtml"])) opts += " -P-D/tmp";
-  return opts;
 }
 
 private define groff_set_status_line(args)
@@ -516,7 +497,7 @@ define groff_insert_glyph()
   fontfiles = groff_get_font_files();
   exp = read_mini("Glyph search string:", "", "");
   bufname = "***Glyphs Matching \"$exp\"***"$;
-  
+
   foreach fontfile (fontfiles)
   {
     if (search_file(fontfile, exp, 100)) 
@@ -557,7 +538,7 @@ define groff_insert_glyph()
     error("nothing matched \"$exp\""$);
 
   all_matches = array_map(String_Type, &sprintf, "%d. %s",
-        [0:length(all_matches)-1], all_matches);
+                          [0:length(all_matches)-1], all_matches);
 
   oldbuf = pop2buf_whatbuf(bufname);
   insert(strjoin(all_matches, "\n"));
@@ -666,11 +647,11 @@ define groff_install_font()
     pe_str = "Open ($1);\nGenerate($fontname + \".pfa\");\nGenerate(\$fontname + \".t42\");",
     Styles = Assoc_Type[String_Type, ""];
 
-    % Map the style names from the font files to corresponding abbreviations.
-    Styles["bolditalic"] = "BI",
-    Styles["regular"] = "R",
-    Styles["italic"] = "I",
-    Styles["bold"] = "B";
+  % Map the style names from the font files to corresponding abbreviations.
+  Styles["bolditalic"] = "BI",
+  Styles["regular"] = "R",
+  Styles["italic"] = "I",
+  Styles["bold"] = "B";
 
   try
   {
@@ -721,7 +702,7 @@ define groff_install_font()
     % character before each entry to satisfy gropdf
     devpdf_dl_str = strcat("\\t", path_sans_extname(pfa_file), "\\t",
                            path_basename(pfa_file));
-    
+
     ifnot (1 == file_status(afm_file))
       throw OpenError, "$afm_file not found"$;
 
@@ -733,7 +714,7 @@ define groff_install_font()
       ifnot (get_y_or_n("$groff_font already appears to be installed, overwrite"$))
         throw AnyError;
     }
-    
+
     groff_popen(["afmtodit", "-e", font_enc, afm_file, textmap, groff_font]; write=2);
     groff_popen(["mkdir", "-p", devps_dir, devpdf_dir]; write=2);
     groff_popen(["chmod", "0644", groff_font, t42_file]; write=2);
@@ -864,7 +845,6 @@ define groff_preview_buffer()
     browser = "",
     macro_package = "",
     preprocs = "",
-    other_opts = groff_get_other_options(),
     output_file = "/tmp/groff_preview_process_output",
     tmpfile = make_tmp_file("groff_preview"),
     cmd = "",
@@ -877,6 +857,10 @@ define groff_preview_buffer()
   () = chdir(dir);
   () = write_string_to_file(str, tmpfile);
 
+  switch (Groff_Output_Device)
+  { case "ps" or case "pdf": output_file += ".pdf"; }
+  { case "html" or case "xhtml": output_file += ".html"; }
+
   if (strlen(Groff_Cmd))
   {
     cmd = Groff_Cmd;
@@ -884,20 +868,23 @@ define groff_preview_buffer()
   }
   else
   {
-    cmd = "$Groff $preprocs $macro_package $other_opts"$;
+    cmd = "$Groff $preprocs $macro_package -T$Groff_Output_Device -k -K "$ +
+          "$Groff_Encoding -dpaper=$Groff_Paper_Format"$;
+
     groff_set_status_line("$Groff $preprocs $macro_package"$);
   }
-  
+
+  if (any(Groff_Output_Device == ["ps","pdf"]) && Groff_Paper_Orientation == "l")
+    cmd += "l";
+
   cmd = strtok(cmd);
-  
-  switch (Groff_Output_Device)
-  { case "ps" or case "pdf": output_file += ".pdf"; }
-  { case "html" or case "xhtml": output_file += ".html"; }
-  
   groff_popen(cmd; write=2, stdin=tmpfile, stdout=output_file);
 
   if (Groff_Output_Device == "ps")
   {
+    if (NULL == search_path_for_file(path, "ps2pdf"))
+      throw OpenError, "ps2pdf not found";
+
     groff_popen(["ps2pdf", "-"]; write=2, stdin=output_file, stdout=tmpfile);
     groff_popen(["mv", tmpfile, output_file]; write=2);
   }
@@ -905,21 +892,21 @@ define groff_preview_buffer()
   () = remove(tmpfile);
   () = chdir(pwd);
 
-  pager = groff_find_prgs_use_first("less most more");
+  pager = groff_use_first_prg_found("less most more");
 
   if (pager == "less") pager = "less -frs";
   else pager = "$pager -s"$;
-  
+
   if (any(Groff_Output_Device == ["ascii","latin1","utf8"]))
     return run_program("$pager $output_file"$);
 
-  browser = groff_find_prgs_use_first("lynx elinks w3m links");
+  browser = groff_use_first_prg_found("lynx elinks w3m links");
 
   if (any(Groff_Output_Device == ["html","xhtml"]))
     return run_program("$browser $output_file"$);
 
   if (NULL == search_path_for_file(path, Groff_Pdf_Viewer))
-    Groff_Pdf_Viewer = groff_find_prgs_use_first("mupdf evince qpdfview " +
+    Groff_Pdf_Viewer = groff_use_first_prg_found("mupdf evince qpdfview " +
                                                  "okular apvlv atril gv xpdf");
   ifnot (__is_initialized(&Pdfviewer_Pid))
   {
@@ -957,10 +944,14 @@ define groff_preview_buffer()
 define groff_return_or_show_cmd(show)
 {
   variable mp, preprocs, cmd;
-  variable other_opts = groff_get_other_options();
 
   (mp, preprocs) = groff_infer_mp_and_preproc();
-  cmd = "$Groff $preprocs $mp $other_opts"$;
+
+  if (strlen(Groff_Cmd))
+    cmd = Groff_Cmd;
+  else
+    cmd = "$Groff $preprocs $mp -T$Groff_Output_Device -k -K $Groff_Encoding "$ +
+          "-dpaper=$Groff_Paper_Format"$;
 
   cmd = strcompress(cmd, " ");
 
@@ -1278,7 +1269,7 @@ define groff_create_table()
       tbl_row += "${tbl_cell}#"$;
       j++;
     }
-    
+
     tbl_row = strtrim_end(tbl_row, "#");
     tbl_rows += "${tbl_row}\n"$;
     tbl_row = "";
@@ -1303,7 +1294,7 @@ define groff_create_table()
     col_aligns += "$col_align "$;
     i++;
   }
-  
+
   insert(".TS\n$tbl_spec\n$col_class\n$col_aligns.\n$tbl_hdr\n$tbl_rows.TE"$);
 }
 
@@ -1314,6 +1305,7 @@ define groff_edit_cmd()
     Groff_Cmd = groff_return_or_show_cmd(0);
 
   Groff_Cmd = read_mini("Edit Groff Cmd:", "", Groff_Cmd);
+  Groff_Output_Device = pcre_matches("-T\\h*([a-zA-Z0-9]+)", Groff_Cmd)[-1];
   groff_set_status_line(Groff_Cmd);
 }
 
@@ -1367,78 +1359,67 @@ define groff_set_other_options()
   ifnot (input_pending(50)) return flush("");
 
   switch (getkey())
-  { case 'd': ungetkey('\t');
-              Groff_Output_Device =
-              read_with_completion(devs, "Set Output Device:", "", "", 's');
+  { case 'd':
+    {
+      ungetkey('\t');
+      Groff_Output_Device =
+        read_with_completion(devs, "Set Output Device:", "", "", 's');
 
-              if (__is_initialized(&Pdfviewer_Pid))
-                kill_process (Pdfviewer_Pid); }
+      if (__is_initialized(&Pdfviewer_Pid))
+        kill_process (Pdfviewer_Pid);
+    }
+  }
+  { case 'e':
+    {
+      ungetkey('\t');
 
-  { case 'e': ungetkey('\t');
-              Groff_Encoding =
-              read_with_completion(encs, "Set Input Encoding:", "", "", 's'); }
+      variable encoding =
+        read_with_completion(encs, "Set Input Encoding:", "", "", 's');
 
-  { case 'f': ungetkey('\t');
-              Groff_Paper_Format =
-              read_with_completion(pfms, "Set Paper Format:", "", "", 's'); }
+      if (strlen(encoding))
+        Groff_Encoding = encoding;
+    }
+  }
+  { case 'f':
+    {
+      ungetkey('\t');
 
+      variable format =
+        read_with_completion(pfms, "Set Paper Format:", "", "", 's');
+
+      if (strlen(format))
+        Groff_Paper_Format = format;
+    }
+  }
   { case 't': if (Groff_Paper_Orientation == "")
-              {
-                Groff_Paper_Orientation = "l";
-                flush("paper orientation set to landscape");
-              }
-              else if (Groff_Paper_Orientation == "l")
-              {
-                Groff_Paper_Orientation = "";
-                flush("paper orientation set to portrait");
-              }
+  {
+    Groff_Paper_Orientation = "l";
+    flush("paper orientation set to landscape");
+  }
+    else if (Groff_Paper_Orientation == "l")
+    {
+      Groff_Paper_Orientation = "";
+      flush("paper orientation set to portrait");
+    }
   }
   { return flush(""); }
+
+  %  variable cmd = groff_return_or_show_cmd(0);
+  %  groff_set_status_line(cmd);
 }
 
-% Return the completion file that matches the macro package used. This
-% is detected first from the contents of the document and if this is
-% not possible, then from the extension of the document. If nothing
-% sensible is returned, then a completion file for troff requests is
-% returned.
-private define groff_set_tabcompletion_file()
+% Return the macro at the editing point as a string
+private define groff_get_macro_in_line()
 {
-  variable completion_file = "", mp = "";
+  variable str, macro;
 
-  (mp,) = groff_infer_mp_and_preproc();
+  push_spot(); str = line_as_string(); pop_spot();
+  macro = pcre_matches("^\\.(\\h*[()a-zA-Z0-9_$]+)", str)[-1];
 
-  ifnot (mp == "")
-    mp = strtrim_beg(mp, "-");
-  else
-    mp = strtrim_beg(path_extname(whatbuf()), ".");
+  if (macro != NULL)
+    macro = str_delete_chars(macro, "\\s");
 
-  completion_file = expand_filename("~/.tabcomplete_$mp"$);
-
-  if (1 == file_status(completion_file))
-    return completion_file;
-  else
-    return expand_filename("~/.tabcomplete_troff");
-}
-
-% Load the tabcompletion extension with a completion file
-% that matches the macro package in use.
-define groff_load_tabcompletion()
-{
-  variable fun = __get_reference("init_tabcomplete");
-
-  if (fun != NULL)
-    (@fun(groff_set_tabcompletion_file));
-}
-
-% This is designed to give DFA highlighting in the help window if
-% the tabcomplete.sl extension is enabled.
-private define groff_switch_buffer_hook(oldbuf)
-{
-  if (is_substr(whatbuf(), "Help for") || is_substr(whatbuf(), "Apropos"))
-  {
-    use_syntax_table(Mode);
-    use_dfa_syntax(1);
-  }
+  return macro;
 }
 
 % Check the current document for errors. It works on the contents of
@@ -1454,24 +1435,86 @@ define groff_check_document()
   () = run_program("nroff -ww -z $mp $tmpfile 2>&1 >/dev/null | less"$);
 }
 
-% Search the groff's info page for a subnode on the macro in the
-% current line
-define groff_help_for_macro()
+variable Manpage = NULL;
+
+% Search in manual pages for macro or expression. If standing on a line with
+% a macro, it will search for occurrences of that macro in the manual page for
+% the macro package in active use. Otherwise it will search for a manually
+% entered expression in a manual page that may be chosen. Only section 7 is
+% searched as that is probably what is wanted 99% of the time.
+define groff_search_man_page(expr)
 {
-  variable kw = "";
+  variable
+    manpages = "groff,groff_me,groff_mm,groff_mom,groff_ms,groff_man," +
+               "groff_mdoc,groff_www,groff_char,groff_diff,groff_hdtbl," +
+               "groff_man_style,groff_rfc1345,groff_trace,roff",
 
-  push_spot_bol();
-  if (looking_at(".")) go_right_1();
-  push_mark();
-  skip_word_chars();
-  kw = bufsubstr();
-  pop_spot();
+    pager = groff_use_first_prg_found("less most more"),
+    macro = groff_get_macro_in_line(), % leading dot omitted
+    macropgk = "",
+    manpage = "",
+    re = "";
 
-  ifnot (strlen(kw))
-    kw = read_mini ("Search for?", "", "");
+  if (pager == "most")
+    pager += " -c -r "; % most needs "-r" to use regexps
+  else
+    pager += " -c ";
 
-  ifnot (0 == run_program("info --index-search=$kw groff"$))
-    flush("info found no node, \"$kw\""$);
+  (macropgk,) = groff_infer_mp_and_preproc();
+  macropgk = strtrim_beg(macropgk, "-");
+
+  if (strlen(macropgk))
+    manpage = "groff_$macropgk"$;
+  else
+    manpage = "groff";
+
+  if (Manpage == NULL)
+    Manpage = manpage;
+
+  % no macro at beginning of line or argument to function is '1' to search
+  % for a free form expression.
+  if (macro == NULL || expr == 1)
+  {
+    ungetkey('\t'); % pops up split window with all groff manpages to complete from
+    manpage = read_with_completion(manpages, "Search in what manual page?",
+                                   Manpage, "", 's');
+
+    % record last used manual page.
+    Manpage = manpage;
+
+    if (markp()) 
+      expr = bufsubstr();
+    else
+      expr = read_mini("Search ${manpage}\(7\) for?"$, "", "");
+
+    ifnot (strlen(expr)) return;
+
+    % let us be able to search also for many of those pesky escape sequences
+    if (expr[[0:0]] == "\\")
+      expr = str_quote_string(expr,"-\\()^!:0adprtu'%/$", '\\');
+
+    () = run_program("man 7 $manpage 2>/dev/null | "$ +
+                     "$pager -p '[^a-zA-Z0-9,]'\'$expr\''[^a-zA-Z0-9,]'"$);
+  }
+  else % macros/requests at the beginning of the line
+  {
+    % escape ')', '(' and '$' in me macros
+    macro = str_quote_string(macro, "()$", '\\');
+    re = "[^a-zA-Z0-9]\'$macro\'[^a-zA-Z0-9]"$; 
+
+    % macros always have at least one upper case character in them, except
+    % for the groff_me(7) macros that are all lower case just like requests.
+    % A document with an active macro package may also have groff requests,
+    % hence the if/else condition.
+    if (string_match(macro, "[A-Z]", 1) || macropgk == "me")
+    {
+      () = run_program("man 7 $manpage 2>/dev/null | $pager -p $re"$);
+    }
+    else % requests
+    {
+      () = run_program("man 7 groff 2>/dev/null | $pager -p $re"$);
+    }
+  }
 }
 
 define groff_insert_tab()
@@ -1517,7 +1560,8 @@ dfa_set_init_callback(&setup_dfa_callback, Mode);
 
 ifnot (keymap_p(Mode)) make_keymap(Mode);
 definekey("groff_insert_tab", Key_Shift_Tab, Mode);
-definekey("groff_help_for_macro", Key_F1, Mode);
+definekey("groff_search_man_page(0)", Key_F1, Mode);
+definekey("groff_search_man_page(1)", Key_F2, Mode);
 definekey("groff_preview_buffer", Key_F9, Mode);
 definekey_reserved("groff_check_document", "C", Mode);
 definekey_reserved("groff_return_or_show_cmd(1)", "g", Mode);
@@ -1555,7 +1599,7 @@ private define groff_menu(menu)
 public define groff_mode()
 {
   variable mp = "", preprocs = "";
-  
+
   set_mode(Mode, 1);
   set_buffer_hook("forward_paragraph_hook", "groff_goto_text_forwards");
   set_buffer_hook("backward_paragraph_hook", "groff_goto_text_backwards");
@@ -1572,16 +1616,4 @@ public define groff_mode()
     Groff = "groff -w w";
 
   groff_set_status_line("$Groff $preprocs $mp"$);
-
-  % Enable the tabcompletion extension if wanted.
-  if (Groff_Use_Tabcompletion)
-  {
-#ifnexists init_tabcomplete
-    if (strlen(expand_jedlib_file("tabcomplete.sl")))
-      autoload("init_tabcomplete", "tabcomplete");
-#endif
-
-    groff_load_tabcompletion();
-    add_to_hook ("_jed_switch_active_buffer_hooks", &groff_switch_buffer_hook);
-  }
 }
