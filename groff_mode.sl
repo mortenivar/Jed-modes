@@ -36,7 +36,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.7.0",
+  Version = "0.5.7.3",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -839,10 +839,10 @@ define groff_preview_buffer()
 
   variable
     xpdfserver = "xpdfserver",
+    browser = getenv("BROWSER"),
     path = getenv("PATH"),
     pwd = getenv("PWD"),
     pager = "",
-    browser = "",
     macro_package = "",
     preprocs = "",
     output_file = "/tmp/groff_preview_process_output",
@@ -892,7 +892,10 @@ define groff_preview_buffer()
   () = remove(tmpfile);
   () = chdir(pwd);
 
-  pager = groff_use_first_prg_found("less most more");
+  pager = getenv("PAGER");
+
+  if (pager == NULL)
+    pager = groff_use_first_prg_found("less most more");
 
   if (pager == "less") pager = "less -frs";
   else pager = "$pager -s"$;
@@ -900,7 +903,8 @@ define groff_preview_buffer()
   if (any(Groff_Output_Device == ["ascii","latin1","utf8"]))
     return run_program("$pager $output_file"$);
 
-  browser = groff_use_first_prg_found("lynx elinks w3m links");
+  if (browser == NULL)
+    browser = groff_use_first_prg_found("lynx elinks w3m links");
 
   if (any(Groff_Output_Device == ["html","xhtml"]))
     return run_program("$browser $output_file"$);
@@ -1449,11 +1453,14 @@ define groff_search_man_page(expr)
                "groff_mdoc,groff_www,groff_char,groff_diff,groff_hdtbl," +
                "groff_man_style,groff_rfc1345,groff_trace,roff",
 
-    pager = groff_use_first_prg_found("less most more"),
     macro = groff_get_macro_in_line(), % leading dot omitted
+    pager = getenv("PAGER"),
     macropgk = "",
     manpage = "",
     re = "";
+
+  if (pager == NULL)
+    pager = groff_use_first_prg_found("less most more");
 
   if (pager == "most")
     pager += " -c -r "; % most needs "-r" to use regexps
@@ -1489,12 +1496,23 @@ define groff_search_man_page(expr)
 
     ifnot (strlen(expr)) return;
 
-    % let us be able to search also for many of those pesky escape sequences
-    if (expr[[0:0]] == "\\")
-      expr = str_quote_string(expr,"-\\()^!:0adprtu'%/$", '\\');
+    % Let us be able to search also for many of those pesky escape
+    % sequences. Just escaping the backslash itself won't work in all cases.
+    % Searching for all of these:
+    %
+    %    \%, \|, \^, \{, \}, \', \`, \-, \_, \!, \?, \), \/, \,, \&, \:, \~,
+    %    \0,  \a,  \c,  \d, \e, \E, \p, \r, \t, \u, \$
+    %
+    % works thusly in the three pagers, all compiled with basic regexps:
+    %
+    %    less: all work except: \'
+    %    most: all work except: \' \{  \(
+    %    more: all work except: \' \{  \(  \| \?
+    %
+    expr = str_quote_string(expr,"\\{([]^$?'|", '\\');
 
     () = run_program("man 7 $manpage 2>/dev/null | "$ +
-                     "$pager -p '[^a-zA-Z0-9,]'\'$expr\''[^a-zA-Z0-9,]'"$);
+                     "$pager '+/[^a-zA-Z0-9,]'\'$expr\''[^a-zA-Z0-9,]'"$);
   }
   else % macros/requests at the beginning of the line
   {
@@ -1508,11 +1526,11 @@ define groff_search_man_page(expr)
     % hence the if/else condition.
     if (string_match(macro, "[A-Z]", 1) || macropgk == "me")
     {
-      () = run_program("man 7 $manpage 2>/dev/null | $pager -p $re"$);
+      () = run_program("man 7 $manpage 2>/dev/null | $pager +/$re"$);
     }
     else % requests
     {
-      () = run_program("man 7 groff 2>/dev/null | $pager -p $re"$);
+      () = run_program("man 7 groff 2>/dev/null | $pager +/$re"$);
     }
   }
 }
