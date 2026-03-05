@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.7.4",
+  Version = "0.5.7.5",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -1556,6 +1556,7 @@ static define setup_dfa_callback(Mode)
   dfa_define_highlight_rule("^\\.\\.", "keyword", Mode); % macro definition end
   dfa_define_highlight_rule("^\\.?\\\\[\"#].*", "comment", Mode); % comments
   dfa_define_highlight_rule("\\\\\".*", "comment", Mode); % comments
+  dfa_define_highlight_rule("[0-9]*", "number", Mode);
   dfa_define_highlight_rule("\"([^\"\\\\]|\\\\.)*\"", "string", Mode); % strings
   dfa_define_highlight_rule("\\\\[a-zA-Z]\\[[a-zA-Z]\\]", "keyword1", Mode); % text attribute
   dfa_define_highlight_rule("\\\\[a-zA-Z]\\[\\]", "keyword1", Mode); % text attribute
@@ -1599,7 +1600,7 @@ definekey_reserved("groff_edit_cmd", "e", Mode);
 private define groff_menu(menu)
 {
   menu_append_item(menu, "Preview Current Buffer", "groff_preview_buffer");
-  menu_append_item(menu, "Help For mMacro", "groff_search_man_page(0)");
+  menu_append_item(menu, "Help For Macro", "groff_search_man_page(0)");
   menu_append_item(menu, "Search Manual Pages", "groff_search_man_page(1)");
   menu_append_item(menu, "Insert Font Name", "groff_insert_font_name");
   menu_append_item(menu, "Install Groff Font", "groff_install_font");
