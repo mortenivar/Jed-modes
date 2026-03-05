@@ -3,6 +3,7 @@
 %% License: http://www.fsf.org/copyleft/gpl.html
 require("keydefs");
 require("pcre");
+require("process");
 
 % The user defined output device when converting the document.
 % Defaults to "pdf". If Groff_Output_Device is "ps", the postscript
@@ -36,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.7.3",
+  Version = "0.5.7.4",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -1598,7 +1599,8 @@ definekey_reserved("groff_edit_cmd", "e", Mode);
 private define groff_menu(menu)
 {
   menu_append_item(menu, "Preview Current Buffer", "groff_preview_buffer");
-  menu_append_item(menu, "Help for macro", "groff_help_for_macro");
+  menu_append_item(menu, "Help For mMacro", "groff_search_man_page(0)");
+  menu_append_item(menu, "Search Manual Pages", "groff_search_man_page(1)");
   menu_append_item(menu, "Insert Font Name", "groff_insert_font_name");
   menu_append_item(menu, "Install Groff Font", "groff_install_font");
   menu_append_item(menu, "Install Groff Fonts in Directory",  "groff_install_fonts_in_dir");
