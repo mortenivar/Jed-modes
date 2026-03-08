@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.7.5",
+  Version = "0.5.7.7",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -490,10 +490,11 @@ private define groff_pdfviewer_signal_handler(pid, flags, status)
 % Insert a groff character escape sequence for a chosen glyph.
 define groff_insert_glyph()
 {
-  variable bufname, oldbuf, fontfile, fontfiles, str, exp, entry, code, descr, n, i = 0;
+  variable bufname, oldbuf, fontfile, fontfiles, str, substrs, exp, entry;
+  variable hexcode, descr, n, i = 0;
   variable all_matches = String_Type[0];
   variable matches = String_Type[0];
-  variable codes = String_Type[0];
+  variable hexcodes = String_Type[0];
 
   fontfiles = groff_get_font_files();
   exp = read_mini("Glyph search string:", "", "");
@@ -501,7 +502,7 @@ define groff_insert_glyph()
 
   foreach fontfile (fontfiles)
   {
-    if (search_file(fontfile, exp, 100)) 
+    if (search_file(fontfile, exp, 1000))
     {
       matches = __pop_list(_stkdepth());
       matches = list_to_array(matches);
@@ -512,24 +513,25 @@ define groff_insert_glyph()
       ifnot (length(matches))
         continue;
 
-      % mapped glyphs
-      matches = matches[where(array_map(Int_Type, &string_match, matches, "^u", 1))];
-
       _for i (0, length(matches)-1, 1)
       {
-        % catch character code and description
-        str = pcre_matches("^(u.*?\\h+).*?([-a-z_]+)", matches[i]);
-        code = str[1];
-        descr = str[2];
+        % catch a unicode hexadecimal character code and description
+        substrs = pcre_matches("([-a-z_]{2,}).*?([0-9a-fA-F]{4,6})$", matches[i]);
 
-        % we don't want duplicated codes from different fonts or different
-        % flavors of the same font, regular, bold, italic ...
-        ifnot (any(code == codes))
+        if (length(substrs) > 2)
         {
-          fontfile = path_basename(fontfile);
-          entry = sprintf("%-10s %s %s", fontfile, code, descr);
-          all_matches = [all_matches, entry];
-          codes = [codes, code];
+          descr = substrs[1];
+          hexcode = substrs[2];
+
+          % we don't want duplicated hexcodes from different fonts or different
+          % flavors of the same font, regular, bold, italic ...
+          ifnot (any(hexcode == hexcodes))
+          {
+            fontfile = path_basename(fontfile);
+            entry = sprintf("%-10s %s %s", fontfile, hexcode, descr);
+            all_matches = [all_matches, entry];
+            hexcodes = [hexcodes, hexcode];
+          }
         }
       }
     }
@@ -552,11 +554,11 @@ define groff_insert_glyph()
     return most_exit_most();
 
   entry = all_matches[integer(n)];
-  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &code, &descr);
+  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &hexcode, &descr);
   delbuf(bufname);
   sw2buf(oldbuf);
   onewindow();
-  str = "\\f\[$fontfile\]\\\[$code\]\\f\[\]"$;
+  str = "\\f\[$fontfile\]\\\[u${hexcode}\]\\f\[\]"$;
   insert(str);
 }
 
@@ -959,6 +961,7 @@ define groff_return_or_show_cmd(show)
           "-dpaper=$Groff_Paper_Format"$;
 
   cmd = strcompress(cmd, " ");
+  groff_set_status_line("$Groff $preprocs $mp"$);
 
   if (show) return flush(cmd);
   return cmd;
@@ -1037,9 +1040,6 @@ define groff_toggle_inline_markup()
 
   ifnot (strlen(str))
     throw UsageError, "you must mark some word(s)";
-
-  % if (string_match(str, "\\\\", 1))
-  %   return insert(str_uncomment_string(bufsubstr_delete(), "\\[", "]\\"));
 
   flush("Text Attributes: (f)ont face, (b)old, (i)talic, (s)ize:, (c)olor, (q)uote");
 
@@ -1408,9 +1408,6 @@ define groff_set_other_options()
     }
   }
   { return flush(""); }
-
-  %  variable cmd = groff_return_or_show_cmd(0);
-  %  groff_set_status_line(cmd);
 }
 
 % Return the macro at the editing point as a string
@@ -1495,7 +1492,11 @@ define groff_search_man_page(expr)
     else
       expr = read_mini("Search ${manpage}\(7\) for?"$, "", "");
 
-    ifnot (strlen(expr)) return;
+    ifnot (strlen(expr))
+    {
+      () = run_program("man 7 $manpage 2>/dev/null"$);
+      return;
+    }
 
     % Let us be able to search also for many of those pesky escape
     % sequences. Just escaping the backslash itself won't work in all cases.
