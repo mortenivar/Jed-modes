@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.7.7",
+  Version = "0.5.8.0",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -491,10 +491,10 @@ private define groff_pdfviewer_signal_handler(pid, flags, status)
 define groff_insert_glyph()
 {
   variable bufname, oldbuf, fontfile, fontfiles, str, substrs, exp, entry;
-  variable hexcode, descr, n, i = 0;
+  variable identifier, descr, n = 0, i = 0;
   variable all_matches = String_Type[0];
   variable matches = String_Type[0];
-  variable hexcodes = String_Type[0];
+  variable identifiers = String_Type[0];
 
   fontfiles = groff_get_font_files();
   exp = read_mini("Glyph search string:", "", "");
@@ -515,22 +515,25 @@ define groff_insert_glyph()
 
       _for i (0, length(matches)-1, 1)
       {
-        % catch a unicode hexadecimal character code and description
-        substrs = pcre_matches("([-a-z_]{2,}).*?([0-9a-fA-F]{4,6})$", matches[i]);
+        % catch first field (identifier) in a groff font file entry. This is
+        % sometimes an alias and sometimes a hex code. If it is a hex code
+        % also catch the alias.
+        substrs = pcre_matches("^([-a-zA-Z0-9_]+).*?([-a-zA-Z_]+)", matches[i]);
 
         if (length(substrs) > 2)
         {
-          descr = substrs[1];
-          hexcode = substrs[2];
+          descr = substrs[2];
+          identifier = substrs[1];
 
-          % we don't want duplicated hexcodes from different fonts or different
+          % we don't want duplicated identifiers from different fonts or different
           % flavors of the same font, regular, bold, italic ...
-          ifnot (any(hexcode == hexcodes))
+          ifnot (any(identifier == identifiers))
           {
             fontfile = path_basename(fontfile);
-            entry = sprintf("%-10s %s %s", fontfile, hexcode, descr);
+            entry = sprintf("%-5d %-30s %-15s %s", n, fontfile, identifier, descr);
             all_matches = [all_matches, entry];
-            hexcodes = [hexcodes, hexcode];
+            identifiers = [identifiers, identifier];
+            n++;
           }
         }
       }
@@ -539,9 +542,6 @@ define groff_insert_glyph()
 
   ifnot (length(all_matches))
     error("nothing matched \"$exp\""$);
-
-  all_matches = array_map(String_Type, &sprintf, "%d. %s",
-                          [0:length(all_matches)-1], all_matches);
 
   oldbuf = pop2buf_whatbuf(bufname);
   insert(strjoin(all_matches, "\n"));
@@ -554,11 +554,11 @@ define groff_insert_glyph()
     return most_exit_most();
 
   entry = all_matches[integer(n)];
-  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &hexcode, &descr);
+  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &identifier, &descr);
   delbuf(bufname);
   sw2buf(oldbuf);
   onewindow();
-  str = "\\f\[$fontfile\]\\\[u${hexcode}\]\\f\[\]"$;
+  str = "\\f\[$fontfile\]\\\[$identifier\]\\f\[\]"$;
   insert(str);
 }
 
