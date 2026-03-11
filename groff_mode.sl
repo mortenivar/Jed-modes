@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.8.5",
+  Version = "0.5.8.6",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -492,7 +492,7 @@ private define groff_pdfviewer_signal_handler(pid, flags, status)
 % the actual character.
 private define groff_insert_hex_char()
 {
-  variable x, hex, hex_arr = String_Type[0];
+  variable x, hex;
 
   bob();
 
@@ -501,7 +501,6 @@ private define groff_insert_hex_char()
     push_mark;
     skip_chars("[0-9a-fA-Fu_]");
     hex = bufsubstr_delete();
-    hex_arr = [hex_arr, hex];
     hex = strtrim_beg(hex, "u");
     hex = strtok(hex, "_");
 
