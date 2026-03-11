@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.8.0",
+  Version = "0.5.8.5",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -487,18 +487,49 @@ private define groff_pdfviewer_signal_handler(pid, flags, status)
     __uninitialize(&Pdfviewer_Pid);
 }
 
-% Insert a groff character escape sequence for a chosen glyph.
+% Modify a hex code from groff font metrics file format, e.g. "u0394"
+% to jed format, "0x0394" and insert it, replacing the hex code with
+% the actual character.
+private define groff_insert_hex_char()
+{
+  variable x, hex, hex_arr = String_Type[0];
+
+  bob();
+
+  while (re_fsearch("u[0-9a-fA-F]"))
+  {
+    push_mark;
+    skip_chars("[0-9a-fA-Fu_]");
+    hex = bufsubstr_delete();
+    hex_arr = [hex_arr, hex];
+    hex = strtrim_beg(hex, "u");
+    hex = strtok(hex, "_");
+
+    % groff uses e.g. the format, u0041_0328, for composite characters like 'Ą'
+    % they are obtained by inserting the individual parts one after the other.
+    foreach x (hex)
+    {
+      x = integer("0x$x"$);
+      insert_char(x);
+    }
+  }
+}
+
+% Search for a glyph/special character in all installed font files and
+% insert it from a menu.
 define groff_insert_glyph()
 {
-  variable bufname, oldbuf, fontfile, fontfiles, str, substrs, exp, entry;
-  variable identifier, descr, n = 0, i = 0;
+  variable bufname, oldbuf, fontfile, str, substrs, exp, entry, identifier;
+  variable fontfiles_with_matches = String_Type[0];
+  variable fontfiles = groff_get_font_files();
+  variable identifiers = String_Type[0];
   variable all_matches = String_Type[0];
   variable matches = String_Type[0];
-  variable identifiers = String_Type[0];
+  variable n = 0, i = 0;
 
-  fontfiles = groff_get_font_files();
   exp = read_mini("Glyph search string:", "", "");
   bufname = "***Glyphs Matching \"$exp\"***"$;
+  _pop_n(_stkdepth());
 
   foreach fontfile (fontfiles)
   {
@@ -516,21 +547,20 @@ define groff_insert_glyph()
       _for i (0, length(matches)-1, 1)
       {
         % catch first field (identifier) in a groff font file entry. This is
-        % sometimes an alias and sometimes a hex code. If it is a hex code
-        % also catch the alias.
-        substrs = pcre_matches("^([-a-zA-Z0-9_]+).*?([-a-zA-Z_]+)", matches[i]);
+        % sometimes an alias and sometimes a hex code.
+        substrs = pcre_matches("^([-a-zA-Z0-9_/*]+)", matches[i]);
 
-        if (length(substrs) > 2)
+        ifnot (NULL == substrs)
         {
-          descr = substrs[2];
           identifier = substrs[1];
-
+            
           % we don't want duplicated identifiers from different fonts or different
           % flavors of the same font, regular, bold, italic ...
           ifnot (any(identifier == identifiers))
           {
             fontfile = path_basename(fontfile);
-            entry = sprintf("%-5d %-30s %-15s %s", n, fontfile, identifier, descr);
+            fontfiles_with_matches = [fontfiles_with_matches, fontfile];
+            entry = sprintf("%-5d %-25s", n, identifier);
             all_matches = [all_matches, entry];
             identifiers = [identifiers, identifier];
             n++;
@@ -545,6 +575,7 @@ define groff_insert_glyph()
 
   oldbuf = pop2buf_whatbuf(bufname);
   insert(strjoin(all_matches, "\n"));
+  groff_insert_hex_char();
   set_buffer_modified_flag(0);
   most_mode();
   bob();
@@ -553,8 +584,8 @@ define groff_insert_glyph()
   if (n == "q")
     return most_exit_most();
 
-  entry = all_matches[integer(n)];
-  () = sscanf(entry, "%s %s %s %s", &n, &fontfile, &identifier, &descr);
+  fontfile = fontfiles_with_matches[integer(n)];
+  identifier = identifiers[integer(n)];
   delbuf(bufname);
   sw2buf(oldbuf);
   onewindow();
