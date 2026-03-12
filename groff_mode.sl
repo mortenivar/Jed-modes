@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.8.6",
+  Version = "0.5.9.0",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -519,11 +519,12 @@ private define groff_insert_hex_char()
 define groff_insert_glyph()
 {
   variable bufname, oldbuf, fontfile, str, substrs, exp, entry, identifier;
-  variable fontfiles_with_matches = String_Type[0];
+  variable elems_seen = Assoc_Type[Int_Type, 0];
+  variable fontfiles_with_matches = {};
   variable fontfiles = groff_get_font_files();
-  variable identifiers = String_Type[0];
-  variable all_matches = String_Type[0];
-  variable matches = String_Type[0];
+  variable identifiers = {};
+  variable all_matches = {};
+  variable matches = {};
   variable n = 0, i = 0;
 
   exp = read_mini("Glyph search string:", "", "");
@@ -532,7 +533,7 @@ define groff_insert_glyph()
 
   foreach fontfile (fontfiles)
   {
-    if (search_file(fontfile, exp, 1000))
+    if (search_file(fontfile, exp, 20000))
     {
       matches = __pop_list(_stkdepth());
       matches = list_to_array(matches);
@@ -552,16 +553,18 @@ define groff_insert_glyph()
         ifnot (NULL == substrs)
         {
           identifier = substrs[1];
-            
-          % we don't want duplicated identifiers from different fonts or different
-          % flavors of the same font, regular, bold, italic ...
-          ifnot (any(identifier == identifiers))
+
+          % we don't want duplicated identifiers from different fonts or
+          % different flavors of the same font, regular, bold, italic. This
+          % is a very fast way of avoiding that.
+          ifnot(assoc_key_exists(elems_seen, string(identifier)))
           {
+            elems_seen[string(identifier)] = 1;
+            entry = sprintf("%-5d %-5s", n, identifier);
+            list_append(identifiers, identifier);
             fontfile = path_basename(fontfile);
-            fontfiles_with_matches = [fontfiles_with_matches, fontfile];
-            entry = sprintf("%-5d %-25s", n, identifier);
-            all_matches = [all_matches, entry];
-            identifiers = [identifiers, identifier];
+            list_append(fontfiles_with_matches, fontfile);
+            list_append(all_matches, entry);
             n++;
           }
         }
@@ -569,7 +572,9 @@ define groff_insert_glyph()
     }
   }
 
-  ifnot (length(all_matches))
+  if (length(all_matches))
+    all_matches = list_to_array(all_matches);
+  else
     error("nothing matched \"$exp\""$);
 
   oldbuf = pop2buf_whatbuf(bufname);
@@ -1211,7 +1216,7 @@ define groff_draw_gpic(obj)
       }
     }
 
-    pic_str = "$obj $length $linetype thickness $thn outline " +
+    pic_str = "$obj $length $linetype thickness $thn outline "$ +
               "\"$color\" $dir $str aligned"$;
   }
 
@@ -1336,12 +1341,20 @@ define groff_create_table()
 % Edit and set the groff command used to convert the document
 define groff_edit_cmd()
 {
+  variable dev = Groff_Output_Device;
+
   ifnot (strlen(Groff_Cmd))
     Groff_Cmd = groff_return_or_show_cmd(0);
 
   Groff_Cmd = read_mini("Edit Groff Cmd:", "", Groff_Cmd);
   Groff_Output_Device = pcre_matches("-T\\h*([a-zA-Z0-9]+)", Groff_Cmd)[-1];
   groff_set_status_line(Groff_Cmd);
+
+  if (dev != Groff_Output_Device)
+  {
+    if (__is_initialized(&Pdfviewer_Pid))
+      kill_process (Pdfviewer_Pid);
+  }
 }
 
 % Skip forwards to regular text parts of the document.
