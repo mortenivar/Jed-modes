@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.9.0",
+  Version = "0.5.9.1",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -916,6 +916,7 @@ define groff_preview_buffer()
     cmd += "l";
 
   cmd = strtok(cmd);
+
   groff_popen(cmd; write=2, stdin=tmpfile, stdout=output_file);
 
   if (Groff_Output_Device == "ps")
@@ -1623,6 +1624,11 @@ dfa_set_init_callback(&setup_dfa_callback, Mode);
 %{{{ Mode keymap
 
 ifnot (keymap_p(Mode)) make_keymap(Mode);
+
+% Wordstar and brief emulations don't define a _Reserved_Key_Prefix
+switch (_Jed_Emulation)
+{ case "wordstar" or case "brief": _Reserved_Key_Prefix = "^C"; }
+
 definekey("groff_insert_tab", Key_Shift_Tab, Mode);
 definekey("groff_search_man_page(0)", Key_F1, Mode);
 definekey("groff_search_man_page(1)", Key_F2, Mode);
@@ -1674,6 +1680,7 @@ public define groff_mode()
   mode_set_mode_info(Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
   set_comment_info(Mode, "\.\\\" ", "", 0x04);
   (mp, preprocs) = groff_infer_mp_and_preproc();
+
   use_keymap(Mode);
   run_mode_hooks("groff_mode_hook");
 
