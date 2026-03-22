@@ -87,24 +87,35 @@ https://savannah.gnu.org/bugs/?67700
 You may then search for and insert special glyphs like emojis, etc with
 "<ctrl>-c G" or with "Insert Glyph" from the menu. In order to actually see
 the glyphs in the menu, you must use a font file for your terminal which is
-capable of displaying them.
+capable of displaying them. The searching itself is done in the glyph names
+in the groff font files which are fairly short and descriptive like e.g.
+"checkbox-blank-circle". This means that you should also keep your search
+expressions short and succinct.
 
 Note that certain glyphs are designated for so-called "private use" in the
-unicode standard. These glyphs seemingly may come out completely differently
-on different systems. E.g. the glyph which has the hex code, 0xF8FF looks
-like a boldface, lowercase 'f', surrounded by parentheses in my terminal.
-Others may see something else. Groff itself, using the pdf device, displays
-this glyph as the chewed off Apple logo. So for this category of glyphs, the
-menu is totally unreliable. But they are not very many.
+unicode standard. These glyphs are located in the hex interval, 0xE000 -
+0xF8FF. There are 6400 of them, then. They seemingly may come out completely
+differently, depending on what font one is using in the terminal. E.g. the
+glyph which has the hex code, 0xF8FF looks like a boldface, lowercase 'f',
+surrounded by parentheses in my terminal. Others may see something else.
+Groff itself, using the pdf device, displays this glyph as the chewed off
+Apple logo. So, for this category of glyphs, the menu is unfortunately not
+always reliable. Therefore, the names of the glyphs are also displayed in
+the menu if one is available in the fontfile. If the glyph is in the Private
+Use Area, the name of the glyph is juxtaposed to the string, "(PUA)" to
+alert you to a possible inconsistency between groff's idea and your
+terminal's idea on how the hex code for this glyph should be rendered. Most
+of the time, the two concur, though.
 
 
                                    USAGE:
 
-   "<ctrl>-c" is the reserved key prefix which may vary with emulations, but
-   this is the one used for most emulations. Look in the menu <F10> -> Mode
-   to see what it is.
 
-   (e.g. "<ctrl>-cf" means, type <ctrl>-c, release both keys and type 'f')
+"<ctrl>-c" is the reserved key prefix which may vary with emulations, but
+this is the one used for most emulations. Look in the menu <F10> -> Mode
+to see what it is if you're in doubt.
+
+(e.g. "<ctrl>-cf" means, type <ctrl>-c, release both keys and type 'f')
 
 
 - <F10> ->  Mode, will show some menu items of available commands.
@@ -194,8 +205,9 @@ If standing on a line with a macro or request, typing <F1> will pop up the
 manual page for the active macro package and show the first match of the
 macro/request. If standing on a line without a macro or request, a search
 prompt will appear where any search expression may be entered in a manual
-page of choice. If text is marked beforehand, this text will become the
-search expression. The key <F2> is also bound to this latter type of search.
+page of choice. The key <F2> is also bound to this latter type of search.
+If text is marked beforehand with the editor's marking function, this text
+will become the search expression.
 
 
                              USING A MODE HOOK:
@@ -220,4 +232,4 @@ e.g. inserting the following into your ~/.jedrc:
 Send comments, suggestions or bug reports to me:
 
   Morten Bo Johansen
-  mbj at hotmail dot com
+  mortenbo at hotmail dot com
