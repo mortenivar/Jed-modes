@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.9.1",
+  Version = "0.5.9.4",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -496,7 +496,7 @@ private define groff_insert_hex_char()
 
   bob();
 
-  while (re_fsearch("u[0-9a-fA-F]"))
+  while (re_fsearch("\\<u[0-9a-fA-F]+\\>"))
   {
     push_mark;
     skip_chars("[0-9a-fA-Fu_]");
@@ -508,7 +508,10 @@ private define groff_insert_hex_char()
     % they are obtained by inserting the individual parts one after the other.
     foreach x (hex)
     {
-      x = integer("0x$x"$);
+      try
+        x = integer("0x$x"$);
+      catch SyntaxError;
+
       insert_char(x);
     }
   }
@@ -518,7 +521,8 @@ private define groff_insert_hex_char()
 % insert it from a menu.
 define groff_insert_glyph()
 {
-  variable bufname, oldbuf, fontfile, str, substrs, exp, entry, identifier;
+  variable bufname, oldbuf, fontfile, str, substrs, expr, entry, identifier;
+  variable lines, jed_hex, groff_hex, hex, fp, name, header;
   variable elems_seen = Assoc_Type[Int_Type, 0];
   variable fontfiles_with_matches = {};
   variable fontfiles = groff_get_font_files();
@@ -526,57 +530,61 @@ define groff_insert_glyph()
   variable all_matches = {};
   variable matches = {};
   variable n = 0, i = 0;
-
-  exp = read_mini("Glyph search string:", "", "");
-  bufname = "***Glyphs Matching \"$exp\"***"$;
-  _pop_n(_stkdepth());
+  
+  expr = read_mini("Glyph search string:", "", "");
+  bufname = "***Glyphs Matching \"$expr\"***"$;
 
   foreach fontfile (fontfiles)
   {
-    if (search_file(fontfile, exp, 20000))
+    fp = fopen(fontfile, "r");
+    lines = fgetslines(fp; trim = 3);
+    i = wherefirst(lines == "charset");
+    lines = lines[[i+1:]];
+    lines = lines[wherenot(array_map(Int_Type, &string_match, lines, "^---", 1))];
+    matches = lines[where(array_map(Int_Type, &string_match, lines, "\\C$expr"$, 1))];
+
+    ifnot (length(matches))
+      continue;
+
+    _for i (0, length(matches)-1, 1)
     {
-      matches = __pop_list(_stkdepth());
-      matches = list_to_array(matches);
+      hex = pcre_matches("(\\b[0-9a-fA-F]+\\b$)", matches[i])[-1];
 
-      % glyphs that are registered but not mapped to groff character sequences
-      matches = matches[wherenot(array_map(Int_Type, &string_match, matches, "^---", 1))];
+      if (hex == NULL) continue;
 
-      ifnot (length(matches))
-        continue;
+      jed_hex = integer("0x$hex"$);
+      groff_hex = strcat("u", hex);
+      fontfile = path_basename(fontfile);
+      name = pcre_matches("^.+?(\\b[-a-zA-Z_]+\\b)", matches[i])[-1];
 
-      _for i (0, length(matches)-1, 1)
+      if (name == NULL)
+        name = "";
+
+      if (jed_hex >= 0xE000 && jed_hex <= 0xF8FF) % private use area range
+        name += " (PUA)";
+      
+      % we don't want duplicated glyphs from different fonts or different
+      % flavors of the same font, regular, bold, italic. This is a very fast
+      % way of avoiding that.
+      ifnot(assoc_key_exists(elems_seen, groff_hex))
       {
-        % catch first field (identifier) in a groff font file entry. This is
-        % sometimes an alias and sometimes a hex code.
-        substrs = pcre_matches("^([-a-zA-Z0-9_/*]+)", matches[i]);
-
-        ifnot (NULL == substrs)
-        {
-          identifier = substrs[1];
-
-          % we don't want duplicated identifiers from different fonts or
-          % different flavors of the same font, regular, bold, italic. This
-          % is a very fast way of avoiding that.
-          ifnot(assoc_key_exists(elems_seen, string(identifier)))
-          {
-            elems_seen[string(identifier)] = 1;
-            entry = sprintf("%-5d %-5s", n, identifier);
-            list_append(identifiers, identifier);
-            fontfile = path_basename(fontfile);
-            list_append(fontfiles_with_matches, fontfile);
-            list_append(all_matches, entry);
-            n++;
-          }
-        }
+        elems_seen[groff_hex] = 1;
+        entry = sprintf("%d\t%s\t%-50s\t%s", n, groff_hex, name, fontfile);
+        list_append(identifiers, groff_hex);
+        list_append(fontfiles_with_matches, fontfile);
+        list_append(all_matches, entry);
+        n++;
       }
     }
   }
-
+  
   if (length(all_matches))
     all_matches = list_to_array(all_matches);
   else
-    error("nothing matched \"$exp\""$);
+    error("nothing matched \"$expr\""$);
 
+  header = sprintf("%s\t%s\t%-50s\t%s\n", "No:", "Glyph:", "Name:", "Fontfile:");
+  all_matches = [header, all_matches];
   oldbuf = pop2buf_whatbuf(bufname);
   insert(strjoin(all_matches, "\n"));
   groff_insert_hex_char();
