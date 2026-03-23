@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.9.4",
+  Version = "0.5.9.6",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -521,7 +521,7 @@ private define groff_insert_hex_char()
 % insert it from a menu.
 define groff_insert_glyph()
 {
-  variable bufname, oldbuf, fontfile, str, substrs, expr, entry, identifier;
+  variable bufname, oldbuf, fontfile, str, expr, entry, identifier;
   variable lines, jed_hex, groff_hex, hex, fp, name, header;
   variable elems_seen = Assoc_Type[Int_Type, 0];
   variable fontfiles_with_matches = {};
@@ -533,6 +533,9 @@ define groff_insert_glyph()
   
   expr = read_mini("Glyph search string:", "", "");
   bufname = "***Glyphs Matching \"$expr\"***"$;
+
+  ifnot (strlen(expr))
+    return;
 
   foreach fontfile (fontfiles)
   {
@@ -548,20 +551,37 @@ define groff_insert_glyph()
 
     _for i (0, length(matches)-1, 1)
     {
-      hex = pcre_matches("(\\b[0-9a-fA-F]+\\b$)", matches[i])[-1];
+      % the hex codes in the font files are almost always located at the end
+      % of the line of each glyph without a prefixed 'u'
+      hex = pcre_matches("\\b((?=[A-F0-9]*[0-9]*)[A-F0-9]{4,6})\\b$", matches[i])[-1];
 
-      if (hex == NULL) continue;
+      % if they are not, they surely are at the beginning of the line with a
+      % prefixed 'u'.
+      if (hex == NULL)
+        hex = pcre_matches("^\\bu((?=[A-F0-9]*[0-9]*)[A-F0-9]{4,6})\\b", matches[i])[-1];
 
-      jed_hex = integer("0x$hex"$);
+      if (hex == NULL)
+        continue;
+
+      try
+        jed_hex = integer("0x$hex"$);
+      catch SyntaxError;
+      
+      if (jed_hex < 128)
+        continue;
+
       groff_hex = strcat("u", hex);
       fontfile = path_basename(fontfile);
-      name = pcre_matches("^.+?(\\b[-a-zA-Z_]+\\b)", matches[i])[-1];
+      name = pcre_matches("^.+?((?![0-9]+$)[-a-z_]+)", matches[i])[-1];
 
       if (name == NULL)
         name = "";
 
-      if (jed_hex >= 0xE000 && jed_hex <= 0xF8FF) % private use area range
-        name += " (PUA)";
+      if (typeof(jed_hex) == Integer_Type)
+      {
+        if (jed_hex >= 0xE000 && jed_hex <= 0xF8FF) % private use area range
+          name += " (PUA)";
+      }
       
       % we don't want duplicated glyphs from different fonts or different
       % flavors of the same font, regular, bold, italic. This is a very fast
@@ -577,7 +597,7 @@ define groff_insert_glyph()
       }
     }
   }
-  
+
   if (length(all_matches))
     all_matches = list_to_array(all_matches);
   else
