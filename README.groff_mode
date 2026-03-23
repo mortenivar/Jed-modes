@@ -90,7 +90,8 @@ the glyphs in the menu, you must use a font file for your terminal which is
 capable of displaying them. The searching itself is done in the glyph names
 in the groff font files which are fairly short and descriptive like e.g.
 "checkbox-blank-circle". This means that you should also keep your search
-expressions short and succinct.
+expressions short and succinct. You may use basic regular expressions in the
+search string.
 
 Note that certain glyphs are designated for so-called "private use" in the
 unicode standard. These glyphs are located in the hex interval, 0xE000 -
@@ -105,7 +106,11 @@ the menu if one is available in the fontfile. If the glyph is in the Private
 Use Area, the name of the glyph is juxtaposed to the string, "(PUA)" to
 alert you to a possible inconsistency between groff's idea and your
 terminal's idea on how the hex code for this glyph should be rendered. Most
-of the time, the two concur, though.
+of the time, the two concur, though. It should also be noted that the
+information in the groff font files sometimes is incomplete in that glyphs
+may lack a name and so nothing will turn up for that glyph in a search.
+Typing in a single dot '.' as the search expression will give you a wysiwyg
+listing of all the glyphs that are available to groff.
 
 
                                    USAGE:
@@ -170,7 +175,7 @@ to see what it is if you're in doubt.
             format and toggle between portrait and landscape paper
             orientation.
 
-- <ctrl>-cC will show the full groff command line, the mode has detected as
+- <ctrl>-cg will show the full groff command line, the mode has detected as
             needed to convert the current buffer, in the message area. This
             is similar to what the grog(1) program does.
 
