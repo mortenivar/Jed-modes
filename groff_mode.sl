@@ -37,7 +37,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.9.6",
+  Version = "0.5.9.7",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -572,7 +572,7 @@ define groff_insert_glyph()
 
       groff_hex = strcat("u", hex);
       fontfile = path_basename(fontfile);
-      name = pcre_matches("^.+?((?![0-9]+$)[-a-z_]+)", matches[i])[-1];
+      name = pcre_matches("(?<=\\s)([a-zA-Z0-9_-]*[a-zA-Z][a-zA-Z0-9_-]*)", matches[i])[-1];
 
       if (name == NULL)
         name = "";
