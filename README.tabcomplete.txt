@@ -115,7 +115,15 @@ A line may also look like this:
 
 Here the second field, "&groff_get_color_names(1)", is a S-Lang function to
 be executed upon completion, which is implied by prefixing the function name
-with the "&" character.
+with the '&' character. The second field may also consist of any sequence of
+slang code. E.g.
+
+  isodate@ :: &insert(strftime ("%Y-%m-%d")); :: Insert ISO date.
+  
+defines an alias, "isodate@", which upon its completion executes the code in
+the second field which in turn inserts the current date in iso format into
+the buffer. Always remember prefixing with the '&'. Note that completion
+words that execute slang code must be defined as aliases.
 
 
                                  4.1 ALIASES
@@ -250,7 +258,9 @@ completion at the minibuffer's S-Lang> cli prompt. Note that key (sequence)
 bound to invoking the S-Lang> prompt is detected and if you have more than
 one key (sequence) bound to invoking the prompt, it may not detect the one
 you're actually using. In that case, check those key bindings and remove the
-one(s) you're not using.
+one(s) you're not using. Also note that if you invoke the S-Lang cli prompt
+from the menu, then completion won't be available, you must invoke it
+directly from the keyboard.
 
   variable Minimum_Completion_Word_Size = 2;
 
@@ -343,13 +353,13 @@ hidden file would then be named ".tabcomplete_en" or ".tabcomplete_en_US"
 for American English, residing in your home directory. These completion
 files must of course be created first, see above.
 
-For modes, i.e. programming language modes, where you don't want spell
-checking, use the "init_tabcomplete ()" function in the mode hook instead to
-load the tabcomplete functions.
-
 The $LANG part should match as a substring of your current locale setting in
 either one of the environment variables, $LANG, $LC_MESSAGES or $LC_ALL, e.g.
 if the environment variable $LANG is set to "en_US.utf-8".
+
+For modes, i.e. programming language modes, where you don't want spell
+checking, use the "init_tabcomplete ()" function in the mode hook instead to
+load the tabcomplete functions.
 
 
 Send bug reports or suggestions to: Morten Bo Johansen, mortenbo at hotmail dot com
