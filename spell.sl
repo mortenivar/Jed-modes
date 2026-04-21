@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.5, 2026-02-16
+%% Version: 0.9.4.6, 2026-04-21
 %%
 %}}}
 %{{{ Requires
@@ -764,6 +764,7 @@ public define spell_buffer()
     tmpfile = make_tmp_file("spell_buffer"),
     tmpfile1 = make_tmp_file("spell_buffer1"),
     pers_dict_word_arr,
+    length_misspelled,
     misspelled_words,
     misspelling,
     list = "-l",
@@ -847,6 +848,8 @@ public define spell_buffer()
   % Return the words in the personal dictionary as an array.
   pers_dict_word_arr = spell_popen(["cat", pers_dict]; write={1,2});
 
+  length_misspelled = length(misspelled_words);
+  
   % This modifies the spell checker's own mechanism for looking up words in
   % the personal dictionary. Especially, some hunspell dictionaries strangely
   % include the period, '.', as a valid word character even at the end of a
@@ -858,6 +861,8 @@ public define spell_buffer()
   _for i (0, length(misspelled_words)-1, 1)
   {
     misspelling = misspelled_words[i];
+
+    flush("adding word $i of $length_misspelled words to syntax table ..."$);
 
     if (strbytelen(misspelling) > 48) continue; % maximum keyword length
 
