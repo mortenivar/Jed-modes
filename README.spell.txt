@@ -1,4 +1,4 @@
-				 What is it?
+                                 What is it?
 
 spell.sl is an extension minor mode to the Jed editor to spell check the
 current buffer, either as as you type along ("on the fly") or in one fell
@@ -23,7 +23,7 @@ For spell checking very, very large texts, it should be noted that aspell is
 significantly faster than hunspell.
 
 
-				Requirements:
+                                Requirements:
 
 
 - The enchant spell checking wrapper program.
@@ -32,7 +32,7 @@ significantly faster than hunspell.
   accompanying dictionaries.
 
 
-				  Features:
+                                  Features:
 
 
 - Spell check the whole buffer, highlighting misspelled words.
@@ -54,7 +54,7 @@ significantly faster than hunspell.
 - Go to next or previous misspelled word
 
 
-				Installation:
+                                Installation:
 
 
 Place spell.sl in a directory where jed will find it. Add the following line
@@ -77,8 +77,8 @@ with
   <alt>-x spell_init
 
                                    
-				Basic Usage:
-				   
+                                Basic Usage:
+           
 
 When loading a file, with the mode activated, all misspelled or unrecognized
 words will be highlighted at once, so you may quickly scroll through the
@@ -95,7 +95,7 @@ alerted to your spelling mistake.
 
 
 
-			       Customization:
+                               Customization:
 
 
 Also in ~/.jedrc, you may set some custom variables, exemplified here with
@@ -131,7 +131,7 @@ precedes the spell_init() function. Also note that you do not use the
 outside the mode hook.
 
 
-		  The Variable, "Spell_Extended_Wordchars":
+                  The Variable, "Spell_Extended_Wordchars":
  
 
 is something you may want to set if you want to include some non-standard
@@ -139,10 +139,16 @@ characters as part of a word.
 
   variable Spell_Extended_Wordchars = "_";
 
-which would include the underscore character as part of a word.
+which would include the underscore character as part of a word. Personally,
+I like aspell the best and I use the following value for this variable in my
+~/.jedrc:
+
+  variable Spell_Extended_Wordchars = "-_.'/";
+  
+then all the words in the Danish aspell-da dictionary will be matched.
 
 
-			 The Variable, "Spell_Dict":
+                         The Variable, "Spell_Dict":
 
 
 holds the value for the default spelling dictionary to use. If none is
@@ -166,7 +172,7 @@ variable will have only take effect if you change the dictionary in a
 running session.
 
 
-		    The Variable, "Spell_Ask_Dictionary":
+                    The Variable, "Spell_Ask_Dictionary":
 
 
 may be set to 1 to prompt you for a dictionary on startup.  This is handy in
@@ -175,7 +181,7 @@ Again, with enchant and hunspell you may specify multiple dictionaries
 separated with commas.
 
 
-		   The Variable, "Spell_Misspelled_Color":
+                   The Variable, "Spell_Misspelled_Color":
 
 
 is the color of misspelled words and defaults to "red". You may change it to
@@ -192,14 +198,14 @@ any of the following:
   "default"
 
 
-		       The Variable, "Spell_Flyspell"
+                       The Variable, "Spell_Flyspell"
 
 
 may be set to 1 to have misspelled words highlighted as you type along. 0 to
 turn it off. It defaults to 1.
 
 
-	       The Variable, "Spell_Use_Replacement_Wordlist":
+               The Variable, "Spell_Use_Replacement_Wordlist":
 
 
 may be set to 1 to have e.g. "too-fast-fingers-for-their-own-good"
@@ -244,7 +250,7 @@ symbolic link to them, e.g.
   ln -s ~/.spell_repl.en_US ~/.spell_repl.en_GB
 
 
-		  The Variable, "Spell_Use_Tabcompletion":
+                  The Variable, "Spell_Use_Tabcompletion":
 
 
 may be used to complete words, if you have the "tabcomplete" extension from
@@ -278,14 +284,14 @@ Look at the README file for the tabcomplete extension to learn about some
 settings relating to that extension.
 
 
-	     The Variable, "Spell_Spellcheck_Buffer_On_Startup"
+             The Variable, "Spell_Spellcheck_Buffer_On_Startup"
 
 
 determines if spell checking will be performed on the buffer immediately
 after it is loaded. The default is yes.
 
 
-		    The Variable, "Spell_Personal_Dict":
+                    The Variable, "Spell_Personal_Dict":
 
 
 holds the file name for a personal dictionary of choice. The mode
@@ -305,7 +311,7 @@ Note, that aspell's and enchant/hunspell's personal dictionary formats are
 incompatible.
 
 
-		       The Variable, "Spell_User_Cmd":
+                       The Variable, "Spell_User_Cmd":
 
 
 is a custom spell checking command you may set. It will override the setting
@@ -319,14 +325,14 @@ You may set this on a per-mode basis in a mode hook. Note that the "-d
 <dictionary>" and "-a" options must always be present.
 
 
-		   The Variable, "Spell_Minimum_Wordsize":
+                   The Variable, "Spell_Minimum_Wordsize":
 
 
 holds the threshold value for the length of words below or equal to which
 you don't want them checked. The value defaults to '1'.
 
 
-	     The Variable, "Spell_Ignore_Words_Without_Vowels":
+             The Variable, "Spell_Ignore_Words_Without_Vowels":
 
 
 as the name says, will exclude words that consist only of consonants from
@@ -335,8 +341,8 @@ being checked. It defaults to '0' (disabled)
 All of these variables may be redefined in a mode hook.
 
 
-		     Setting the Spell Checking Backend:
-		     
+                     Setting the Spell Checking Backend:
+         
 
 You may set your preferred spell checking backends on a per-language basis. See
 
@@ -345,7 +351,7 @@ You may set your preferred spell checking backends on a per-language basis. See
 on how to do that.   
 
 
-			    Keybindings and Menu:
+                            Keybindings and Menu:
 
 
 There are seven user functions that are tied to keys:
@@ -402,7 +408,7 @@ would redefine the keybinding for going to the next misspelled word to
 <ctrl>-c n
 
 
-	      Spell Checking a Buffer Without Loading the Mode:
+              Spell Checking a Buffer Without Loading the Mode:
 
 
 The spell_buffer functions may also be used without loading the entire minor
@@ -415,7 +421,7 @@ and then bind the spell_buffer function to some key in your global key map.
 or use, alt-x spell_buffer
 
 
-			      The Status Line:
+                              The Status Line:
 
 
 If the mode is activated, the status line will always show the spell
@@ -431,7 +437,7 @@ Note, that with multiple dictionaries specified, the spell checking backend
 will be returned by enchant as "Personal Wordlist".
 
 
-		   Spell Checking Programming Source Code:
+                   Spell Checking Programming Source Code:
 
 
 The minor mode should not be enabled for source code files, but if you
