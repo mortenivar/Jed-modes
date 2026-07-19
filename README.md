@@ -20,4 +20,7 @@ Some modes for the Jed editor (https://jedsoft.org/jed):
 
 - _slpo_ - A Standalone Script For Manipulating Gettext Portable Object Files (*.po)
 
-- _glyph_ - A Tiny Script For Inserting a Character From The Unicode Character Database
+- _glyph.sl_ - A Tiny Script For Inserting a Character From The Unicode Character Database
+
+- _wrap.sl_ - A Minor Mode to Wrap Comments in Language Modes or to Format String Variables
+
