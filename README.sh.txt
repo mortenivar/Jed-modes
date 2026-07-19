@@ -37,19 +37,29 @@ Then make sure that your scripts have the "*.sh" extension.
   relative to that block.
 
 - Execution of code in a marked region or in the whole buffer. Show output
-  in another window.
+  in another window. Also for interactive scripts.
 
 - If the shellcheck program is installed, you can have it check the current
   buffer for errors/warnings/notes and have offending lines colored in the
   color of the preprocessor directive, often magenta or brightgreen. You can
   jump to and fro between these error lines and see the error message from
   shellcheck in the message area.
+  
+- Show explanation for a shellcheck error/warning from the shellcheck wiki
+  in a browser.
+  
+- Highlight keywords that are matched to each other.  
+  
+- Optional indentation of heredocs. It defaults to no indentation.
+
+- wrap commented lines/paragraphs or continue comment on next line while
+  typing.
 
 
                                 Customization
 
 
-Four variables may be set in ~/.jedrc, shown here with their defaults as a
+Six variables may be set in ~/.jedrc, shown here with their defaults as a
 block that may be inserted into the ~/.jedrc:
 
     variable SH_Indent = 2;
@@ -80,7 +90,16 @@ block.
 - SH_Shellcheck_Severity_Level, specifies the minimum severity of errors to
   consider. Valid values in order of severity are "error", "warning", "info"
   and "style".
-  
+
+- SH_Brace_Pos, should left curly brace such as in function names be on the
+  same line as the function name (0) or be on the next line (1).
+
+- SH_Format_Heredocs, format heredocs or not. If your heredocs are mostly
+  other shell script, then you would like to format. '0' to leave heredocs
+  alone, '1' to indent them. You may toggle this value with "<alt>," (<alt>
+  comma)
+
+
                              Syntax Highlighting
                              
 If DFA syntax is built into Jed, you may use the mode's DFA highlighting
@@ -92,6 +111,7 @@ like this:
     use_dfa_syntax(1);
   }
                                     Keys
+
 
 Please note that some of the key combinations below may not work for you. For
 instance the <shift>-up key combo is defined in a library file called
@@ -108,35 +128,37 @@ You can find out what your shell environment sees as your keysyms by typing
 <ctrl>-v and then type the key combination.
 
 
-<ctrl>-c C,   will execute the shellcheck program (if installed) on the
+<ctrl>-c C    will execute the shellcheck program (if installed) on the
               current script and color lines that are identified by
               shellcheck as having errors/warnings.
 
-<shift>-down, will jump to the next shellcheck error line, relative to the
+<shift>-down  will jump to the next shellcheck error line, relative to the
               editing point, and display the error message for that line in
               the message area. The editing point will be moved to column of
               the reported start of the offending code.
 
-<shift>-up,   will jump to the previous shellcheck error line, relative to the
+<shift>-up    will jump to the previous shellcheck error line, relative to the
               editing point, and display the error message for that line in
               the message area. The editing point will be moved to column of
               the reported start of the offending code.
 
-<ctrl>-c W,   will show the shellcheck wiki explanation for the current shellcheck
+<ctrl>-c W    will show the shellcheck wiki explanation for the current shellcheck
               error line in a browser. You need to have jumped to an error
               line first with one of the two key combos above.
 
 <ctrl>-c E    Execute code in a marked region or if no region is marked then
               in the whole buffer whole buffer.
 
-<ctrl>-pgup,  briefly show the matching keyword that begins a code block or
+<ctrl>-pgup   briefly show the matching keyword that begins a code block or
               sub-block, if standing on the keyword that ends the block.
               Sometimes convenient in long, convoluted constructs.
 
-<tab>,        usually, will indent the current line or a marked region
+<tab>         usually, will indent the current line or a marked region
 
 <enter>       will indent the current line and place the editing point on the new
               line in an indented position.
+
+<alt>,        (<alt> comma), toggle heredoc indentation on/off
 
 
                        A Note on the Formatting Style
@@ -177,13 +199,9 @@ the current line is one that ends a statement block or sub-block such as
 the block will be found, regardless of indentation level, so that nested
 constructs will be correctly indented.
 
-It has been tested on the ~2000 shell scripts installed on my computer by
-executing the "sh_indent_region_or_line" function on the whole buffer and
-it gets it right in nearly all cases, even in large, complex and intricate
-scripts, but of course there are some ...
-
 
                                     Issues
+
 
 A string spanning more than one line may not be identified as such and words
 therein that happen to be identical to keywords ("if", "for", etc) will
@@ -195,4 +213,4 @@ solution seems to have worse effects.
 (probably several others)
 
 
-Morten Bo Johansen, <morten.bo.johansen@gmail.com>
+Morten Bo Johansen, <mortenbo at hotmail dot com>
