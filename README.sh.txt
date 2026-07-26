@@ -66,6 +66,8 @@ block that may be inserted into the ~/.jedrc:
     variable SH_Browser = "lynx";
     variable SH_Expand_Kw_Syntax = 0;
     variable SH_Shellcheck_Severity_Level = "warning";
+    variable SH_Brace_Pos = 0;
+    variable SH_Format_Heredocs = 0;
 
 - SH_Indent, determines the number of spaces for an indentation level.
 
@@ -100,16 +102,6 @@ block.
   comma)
 
 
-                             Syntax Highlighting
-                             
-If DFA syntax is built into Jed, you may use the mode's DFA highlighting
-scheme by placing the following lines in your ~/.jedrc in the sh_mode_hook
-like this:
-
-  define sh_mode_hook ()
-  {
-    use_dfa_syntax(1);
-  }
                                     Keys
 
 
