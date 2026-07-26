@@ -1,5 +1,6 @@
 require("pcre");
 require("keydefs");
+require("wrap");
 autoload("add_keywords", "syntax");
 
 % The default number of spaces per indentation level
@@ -9,7 +10,7 @@ custom_variable ("Julia_Indent_Default", 4);
 % julia library files reside
 custom_variable ("Julia_Library_Path", "/usr/share/julia");
 
-private variable Version = "0.2.7";
+private variable Version = "0.3.0";
 private variable Mode = "julia";
 private variable Juliafuncs;
 private variable Syntax_Table = Mode;
@@ -194,7 +195,7 @@ private define is_within_chars(str, word, beg_ch, end_ch)
 }
 
 % Are we inside a triple quote text block?
-private define is_inside_triple_quote_block()
+define is_inside_triple_quote_block()
 {
   variable i = 0;
 
@@ -480,19 +481,21 @@ private define julia_indent_line()
 
 define julia_newline_and_indent()
 {
-  ifnot (eolp())
-  {
-    bskip_white();
+  push_spot();
+  bol_skip_white();
+  variable p = _get_point();
 
-    if(bolp())
-    {
-      insert("\n"); julia_indent_line(); go_up_1();
-      return julia_indent_line;
-    }
-    else
-      return break_and_indent_codeline();
+  if (looking_at(Cmt_Char_Beg)) % continued comments
+  {
+    pop_spot();
+    insert("\n");
+    insert_spaces(p);
+    insert(Cmt_Char_Beg);
+    return;
   }
-  julia_indent_line(); eol();
+
+  pop_spot();
+  push_spot(); julia_indent_line(); pop_spot();
   insert("\n");
   julia_indent_line();
 }
@@ -761,4 +764,5 @@ define julia_mode()
   set_buffer_hook("backward_paragraph_hook", "scroll_func_levels_backward");
   set_buffer_hook("forward_paragraph_hook", "scroll_func_levels_forward");
   run_mode_hooks("julia_mode_hook");
+  wrap_mode();
 }
