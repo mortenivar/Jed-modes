@@ -1,9 +1,10 @@
 % lua.sl, a Jed major mode to facilitate the editing of lua code
 % Author: Morten Bo Johansen, mortenbo at hotmail dot com
 % License: GPLv3
-% Version 0.2.5.0 (2025/03/13)
+% Version 0.2.5.5 (2026/07/26)
 require("pcre");
 require("keydefs");
+require("wrap");
 autoload("add_keywords", "syntax");
 
 % The default number of spaces per indentation level
@@ -372,11 +373,36 @@ private define lua_indent_line()
 
 private define _lua_newline_and_indent()
 {
-  bskip_white();
+  push_spot();
+  bol_skip_white();
+  variable p = _get_point();
+
+  if (looking_at(Cmt_Char_Beg)) % continued comments
+  {
+    pop_spot();
+
+    ifnot (looking_at(Cmt_Char_Beg))
+    {
+      insert("\n");
+      insert_spaces(p);
+      insert(Cmt_Char_Beg);
+      return;
+    }
+  }
+
+  pop_spot();
   push_spot(); lua_indent_line(); pop_spot();
   insert("\n");
   lua_indent_line();
 }
+
+% private define _lua_newline_and_indent()
+% {
+%   bskip_white();
+%   push_spot(); lua_indent_line(); pop_spot();
+%   insert("\n");
+%   lua_indent_line();
+% }
 
 define lua_indent_region_or_line()
 {
@@ -712,4 +738,5 @@ define lua_mode()
   set_buffer_hook("backward_paragraph_hook", &lua_goto_top_of_level);
   set_buffer_hook("forward_paragraph_hook", &lua_goto_end_of_level);
   run_mode_hooks("lua_mode_hook");
+  wrap_mode();
 }
