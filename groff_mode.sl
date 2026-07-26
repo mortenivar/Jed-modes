@@ -4,6 +4,7 @@
 require("keydefs");
 require("pcre");
 require("process");
+require("wrap");
 
 % The user defined output device when converting the document.
 % Defaults to "pdf". If Groff_Output_Device is "ps", the postscript
@@ -37,7 +38,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.5.9.7",
+  Version = "0.6.0",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -473,9 +474,9 @@ private define groff_set_status_line(args)
 % The variable that holds the process id for the pdf viewer.
 private variable Pdfviewer_Pid;
 
-private define groff_show_pdfviewer_error(pid, error)
+private define groff_handle_pdfviewer_error(pid, error)
 {
-  return flush(strtrim(error));
+  clear_message();
 }
 
 private define groff_pdfviewer_signal_handler(pid, flags, status)
@@ -517,6 +518,27 @@ private define groff_insert_hex_char()
   }
 }
 
+% If standing in a commented line, a newline will continue the
+% comment on the next line.
+define groff_continued_cmt()
+{
+  push_spot();
+  bol_skip_white();
+  variable p = _get_point();
+
+  if (looking_at(Cmt_Char_Beg)) % continued comments
+  {
+    pop_spot();
+    insert("\n");
+    insert_spaces(p);
+    insert(Cmt_Char_Beg);
+    return;
+  }
+
+  pop_spot();
+  insert("\n");
+}
+
 % Search for a glyph/special character in all installed font files and
 % insert it from a menu.
 define groff_insert_glyph()
@@ -541,6 +563,7 @@ define groff_insert_glyph()
   {
     fp = fopen(fontfile, "r");
     lines = fgetslines(fp; trim = 3);
+    () = fclose(fp);
     i = wherefirst(lines == "charset");
     lines = lines[[i+1:]];
     lines = lines[wherenot(array_map(Int_Type, &string_match, lines, "^---", 1))];
@@ -586,7 +609,7 @@ define groff_insert_glyph()
       % we don't want duplicated glyphs from different fonts or different
       % flavors of the same font, regular, bold, italic. This is a very fast
       % way of avoiding that.
-      ifnot(assoc_key_exists(elems_seen, groff_hex))
+      ifnot (assoc_key_exists(elems_seen, groff_hex))
       {
         elems_seen[groff_hex] = 1;
         entry = sprintf("%d\t%s\t%-50s\t%s", n, groff_hex, name, fontfile);
@@ -628,15 +651,7 @@ define groff_insert_glyph()
 % Return names of installed Groff fonts as a comma separated string.
 private define groff_get_font_names()
 {
-  variable
-    fontdir = "",
-    first_lines = String_Type[0],
-    fontdirs = String_Type[0],
-    fontfiles = String_Type[0];
-
-  fontdirs = ["$Groff_Data_Dir/site-font/devpdf"$,
-              "$Groff_Data_Dir/current/font/devpdf"$,
-              "$Groff_Fonts_User_Dir/devpdf"$];
+  variable fontfiles;
 
   fontfiles = array_map(String_Type, &path_basename, groff_get_font_files());
 
@@ -993,7 +1008,7 @@ define groff_preview_buffer()
 
     { Pdfviewer_Pid = open_process(Groff_Pdf_Viewer, output_file, 1); };
 
-    set_process(Pdfviewer_Pid, "output", &groff_show_pdfviewer_error);
+    set_process(Pdfviewer_Pid, "output", &groff_handle_pdfviewer_error);
     set_process(Pdfviewer_Pid, "signal", &groff_pdfviewer_signal_handler);
     process_query_at_exit(Pdfviewer_Pid, 0);
   }
@@ -1699,14 +1714,15 @@ public define groff_mode()
 {
   variable mp = "", preprocs = "";
 
-  set_mode(Mode, 1);
   set_buffer_hook("forward_paragraph_hook", "groff_goto_text_forwards");
   set_buffer_hook("backward_paragraph_hook", "groff_goto_text_backwards");
   use_syntax_table(Mode);
   use_dfa_syntax (1);
   mode_set_mode_info(Mode, "init_mode_menu", &groff_menu);
   mode_set_mode_info(Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
-  set_comment_info(Mode, "\.\\\" ", "", 0x04);
+  set_mode(Mode, 0x01);
+  set_comment_info(Mode, ".\\\" ", "", 0x04);
+  set_buffer_hook("newline_indent_hook", "groff_continued_cmt");
   (mp, preprocs) = groff_infer_mp_and_preproc();
 
   use_keymap(Mode);
@@ -1716,4 +1732,5 @@ public define groff_mode()
     Groff = "groff -w w";
 
   groff_set_status_line("$Groff $preprocs $mp"$);
+  wrap_mode();
 }
