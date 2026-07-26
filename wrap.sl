@@ -2,7 +2,7 @@
 % computer language modes as well as formatting string variables.
 % Author: Morten Bo Johansen, <mortenbo at hotmail dot com>
 % License: GPLv3
-% Version 0.5.0 (2026/08/19)
+% Version 0.5.1 (2026/08/26)
 require("comments");
 require("pcre");
 
@@ -17,6 +17,13 @@ private define is_par_sep()
   skip_white();
   (eolp() || eobp() || not re_looking_at(cmt_char_esc));
   pop_spot();
+}
+
+private define str_make_spaces(n)
+{
+  variable s = "";
+  loop (n) s += " ";
+  return s;
 }
 
 private define strip_cmt_chars(line)
@@ -79,8 +86,7 @@ private define wrapok_hook ()
 
   ifnot (line_is_cmt) return 0;
 
-  loop (indent_pos)
-    indent_str += " ";
+  indent_str = str_make_spaces(indent_pos);
 
   if (LAST_CHAR == 32) return 0;
   insert(strcat(Cmt_Char_End, "\n", indent_str, Cmt_Char_Beg));
@@ -204,9 +210,7 @@ define wrap_paragraph_or_string()
     wrap -= 1; % like format_paragraph
     lines = strtrim(strchop(org_str, '\n', 0));
     str = strjoin(lines, "\n");
-
-    loop (indent_pos)
-      indent_str += " ";
+    indent_str = str_make_spaces(indent_pos);
 
     if (indent_pos > 0)
       wrap -= indent_pos;
