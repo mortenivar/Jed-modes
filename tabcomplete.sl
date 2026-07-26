@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.0 2026/04/06
+% Version 0.9.9.5 2026/07/26
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -122,29 +122,29 @@ private define re_line_match (pat, trim)
   pop_spot ();
 }
 
-% contributed by Guenter Milde, fixed by cpbotha@debian.org
-private define indent_region_or_line ()
+define indent_region_or_line()
 {
-  ifnot (is_visible_mark)
-    indent_line;
-  else
+  variable reg_endline, i = 1;
+
+  if (MINIBUFFER_ACTIVE) return pop_mark_0();
+
+  ifnot (is_visible_mark())
+    return call("indent_line");
+
+  check_region(0);
+  reg_endline = what_line();
+  pop_mark_1();
+
+  do
   {
-    check_region (1);                  % make sure the mark comes first
-    variable End_Line = what_line - 1;
-    exchange_point_and_mark();         % now point is at start of region
-
-    do
-    {
-      if (re_line_match("^$", 1))
-        trim();
-      else
-        indent_line;
-    }
-    while (what_line <= End_Line and down_1);
-
-    pop_spot();
-    pop_mark_0();
+    flush (sprintf("indenting line %d of %d lines", i, reg_endline));
+    if (eolp() and bolp()) continue;
+    call("indent_line");
+    i++;
   }
+  while (down(1) && what_line != reg_endline);
+
+  flush("indent region done");
 }
 
 % What mode are we in
@@ -373,7 +373,7 @@ private define insert_and_expand_construct (kw, syntax)
   syntax = strjoin (syntax, "\n");
 
   if (MINIBUFFER_ACTIVE) % no newlines in the minibuffer
-    syntax = strreplace (syntax, "\n", "");
+    syntax = strreplace (syntax, "\\n", "");
   else
   {
     if (C_BRA_NEWLINE == 0)
@@ -410,7 +410,10 @@ private define insert_and_expand_construct (kw, syntax)
       insert (strcat (kw, syntax));
   }
 
+  push_spot();
+  go_down_1();
   indent_region_or_line ();
+  pop_spot();
 
   % position the cursor at the "@@" place holder"
   if (is_substr (syntax, "@@"))
@@ -495,6 +498,46 @@ private define sort_by_relevancy(str_arr, expr)
   return strs_sorted;
 }
 
+private define re_blooking_at(re)
+{
+  push_spot();
+  variable s = line_as_string();
+  pop_spot();
+  s = s[[0:_get_point() - 1]];
+  string_match(s, "$re$"$, 1);
+}
+
+% Complete delimiters '"', '[' and '(' so typing one of those characters
+% becomes "", [] and () with some exceptions.
+private define compl_delims()
+{
+  ifnot (any(LAST_CHAR == ['"','[', '(']))
+    return;
+
+  switch (LAST_CHAR)
+  { case '"':
+    ifnot (re_blooking_at("[\])a-zA-Z]"))
+    {
+      insert_char('"');
+      go_left_1;
+    }
+  }
+  { case '[':
+    ifnot (re_looking_at("[A-Za-z]"))
+    {
+      insert_char(']');
+      go_left_1;
+    }
+  }
+  { case '(':
+    ifnot (re_looking_at("[A-Za-z]"))
+    {
+      insert_char(')');
+      go_left_1;
+    }
+  }
+}
+
 %}}}
 %{{{ Menu
 % A menu addition to the "System" menu pop up.
@@ -530,9 +573,11 @@ define tabcomplete ()
   if ((blooking_at(")")) || (blooking_at("]")) || (blooking_at("}")))
     return align_delims();
 
+  if (is_visible_mark())
+    return indent_region_or_line();
+ 
   if (looking_at("\",")) return skip_chars("\",");
   if (looking_at(" =")) return skip_chars(" =");
-  if (is_visible_mark()) return indent_region_or_line();
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
 
@@ -669,8 +714,10 @@ define tabcomplete ()
         }
       }
       { case Key_BS: return; } % backspace breaks cycle and returns to stub
-      { case " " || case "\r" || case "\eOC": break; } % space or enter inserts completion and breaks cycle
-      { return insert (completion + keystr);} % all other keys stops and inserts completion + character pressed
+      { case " " || case "\r" || case "\eOC": break; } % space or enter inserts
+                                                       % completion and breaks cycle
+      { return insert (completion + keystr);} % all other keys stops and inserts
+                                              % completion + character pressed
     } % forever
   }
 
@@ -978,21 +1025,6 @@ define slang_mini_completion()
   }
 }
 
-% '"' inserts "", '(' inserts (), '[' inserts [] and places the
-% editing point between the pair of characters.
-define compl_delim_pair(delim)
-{
-  ifnot (any(what_char() == [']',')',',',';']) || eolp())
-    return insert(delim);
-
-  switch (delim)
-  { case "\"": insert("\"\""); }
-  { case "(": insert("\(\)"); }
-  { case "[": insert("[]"); }
-
-  go_left_1();
-}
-
 private variable Completions_Files = String_Type[0];
 
 define init_tabcomplete ()
@@ -1075,19 +1107,17 @@ define init_tabcomplete ()
   }
 
   if (Tabcomplete_Compl_Delims)
-  {
-    local_unsetkey("(");
-    local_setkey("compl_delim_pair(\"\(\")", "(");
-    local_unsetkey("[");
-    local_setkey("compl_delim_pair(\"[\")", "[");
-    local_unsetkey("\"");
-    local_setkey("compl_delim_pair(\"\\\"\")", "\"");
-  }
+    append_to_hook("_jed_before_key_hooks", &compl_delims);
 
   if (SLang_Completion_In_Minibuffer)
   {
     local_unsetkey(get_evaluate_cmd_key());
     local_setkey("slang_mini_completion", get_evaluate_cmd_key());
   }
+  
+  variable fun = get_buffer_hook("indent_hook");
+
+  if (fun != NULL)
+    set_buffer_hook("indent_hook", fun);
 }
 %}}}
