@@ -140,11 +140,21 @@ characters as part of a word.
   variable Spell_Extended_Wordchars = "_";
 
 which would include the underscore character as part of a word. Personally,
-I like aspell the best and I use the following value for this variable in my
-~/.jedrc:
+I like aspell the best and I use the following value for this variable in e.g.
+a text_mode_hook in my ~/.jedrc:
 
-  variable Spell_Extended_Wordchars = "-_.'/";
-  
+   variable Spell_Extended_Wordchars;
+
+   define text_mode_hook ()
+   {
+     ..
+     spell_init ();
+   
+     if (any(Spell_Dict == ["da_DK, da"]))
+       Spell_Extended_Wordchars = "-_'./";
+     ..  
+   }  
+
 then all the words in the Danish aspell-da dictionary will be matched.
 
 
