@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.5 2026/07/26
+% Version 0.9.9.6 2026/07/27
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -413,6 +413,7 @@ private define insert_and_expand_construct (kw, syntax)
   push_spot();
   go_down_1();
   indent_region_or_line ();
+  clear_message();
   pop_spot();
 
   % position the cursor at the "@@" place holder"
@@ -509,7 +510,7 @@ private define re_blooking_at(re)
 
 % Complete delimiters '"', '[' and '(' so typing one of those characters
 % becomes "", [] and () with some exceptions.
-private define compl_delims()
+private define before_key_hook(fun)
 {
   ifnot (any(LAST_CHAR == ['"','[', '(']))
     return;
@@ -977,7 +978,6 @@ define get_evaluate_cmd_key()
   variable n, key;
 
   n = which_key("evaluate_cmd");
-
   if (n == 0) return "^X\e"; % the default from emacs.sl
 
   loop (n)
@@ -1107,12 +1107,13 @@ define init_tabcomplete ()
   }
 
   if (Tabcomplete_Compl_Delims)
-    append_to_hook("_jed_before_key_hooks", &compl_delims);
+    append_to_hook("_jed_before_key_hooks", &before_key_hook);
 
   if (SLang_Completion_In_Minibuffer)
   {
-    local_unsetkey(get_evaluate_cmd_key());
-    local_setkey("slang_mini_completion", get_evaluate_cmd_key());
+    variable key = get_evaluate_cmd_key();
+    local_unsetkey(key);
+    local_setkey("slang_mini_completion", key);
   }
   
   variable fun = get_buffer_hook("indent_hook");
