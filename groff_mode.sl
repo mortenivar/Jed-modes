@@ -26,6 +26,10 @@ custom_variable("Groff_Encoding", "utf-8");
 % a window, showing all warnings from the process, (groff -w w).
 custom_variable("Groff_Show_Warnings", 0);
 
+% Set to '1' to use the \# groff extension as comment delimiter.
+% A value of '0' uses \"
+custom_variable("Use_Groff_Style_Comments", 0);
+
 % The user defined groff command to convert the groff source file. The
 % standard is to use the mode's own detection mechanism based on the
 % contents of the document to set the macro package and preprocessor
@@ -38,7 +42,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.6.0",
+  Version = "0.6.1",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -1445,8 +1449,8 @@ define groff_set_other_options()
                   "D0,D1,D2,D3,D4,D5,D6,letter,legal,tabloid,ledger,statement," +
                   "executive,com10,monarch,DL";
 
-  flush("Options Menu: output (d)evice, (e)ncoding, paper (f)ormat, " +
-        "(t)oggle portrait/landscape");
+  flush("Menu: output (d)evice, (e)ncoding, paper (f)ormat, " +
+        "toggle (o)rientation or (c)omment style)");
 
   ifnot (input_pending(50)) return flush("");
 
@@ -1483,7 +1487,7 @@ define groff_set_other_options()
         Groff_Paper_Format = format;
     }
   }
-  { case 't': if (Groff_Paper_Orientation == "")
+  { case 'o': if (Groff_Paper_Orientation == "")
   {
     Groff_Paper_Orientation = "l";
     flush("paper orientation set to landscape");
@@ -1492,6 +1496,24 @@ define groff_set_other_options()
     {
       Groff_Paper_Orientation = "";
       flush("paper orientation set to portrait");
+    }
+  }
+  { case 'c':
+    {
+      Use_Groff_Style_Comments = not Use_Groff_Style_Comments;
+
+      if (Use_Groff_Style_Comments == 1)
+      {
+        set_comment_info(Mode, "\\# ", "", 0x04);
+        flush("Using Groff style comments (\\#)");
+      }
+      else
+      {
+        set_comment_info(Mode, ".\\\" ", "", 0x04);
+        flush("Using roff style comments (.\\\")");
+      }
+
+      wrap_mode();
     }
   }
   { return flush(""); }
@@ -1721,8 +1743,14 @@ public define groff_mode()
   mode_set_mode_info(Mode, "init_mode_menu", &groff_menu);
   mode_set_mode_info(Mode, "fold_info", "\\\"{{{\r\\\"}}}\r\r");
   set_mode(Mode, 0x01);
-  set_comment_info(Mode, ".\\\" ", "", 0x04);
+
+  if (Use_Groff_Style_Comments == 1)
+    set_comment_info(Mode, "\\# ", "", 0x04);
+  else
+    set_comment_info(Mode, ".\\\" ", "", 0x04);
+
   set_buffer_hook("newline_indent_hook", "groff_continued_cmt");
+
   (mp, preprocs) = groff_infer_mp_and_preproc();
 
   use_keymap(Mode);
