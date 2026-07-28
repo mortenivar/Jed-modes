@@ -61,14 +61,24 @@ You may also add the following block of variables to your ~/.jedrc:
    variable Groff_Pdf_Viewer = "zathura";
    variable Groff_Paper_Format = "A4";
    variable Groff_Encoding = "utf-8";
+   variable Groff_Show_Warnings = 0;
+   variable Use_Groff_Style_Comments = 0;
    variable Groff_Cmd = "";
 
-
 These settings are the default settings and you may then change them there
-to your liking. The variable, "Groff_Cmd", may be used to set a default
-groff command line for converting the document in case you have some special
-needs or the auto detection for some reason fails. It will then override the
-auto detection mechanism.
+to your liking.
+
+The variable, Groff_Show_Warnings, if set to '1', will pop up a window,
+showing all warnings from the process, (groff -w w), when processing the
+command line before previewing the buffer.
+
+The variable, Use_Groff_Style_Comments, if set to '1,' will use the groff
+style comment delimiter, \#, when wrapping comments, instead of .\"
+
+The variable, "Groff_Cmd", may be used to set a default groff command line
+for converting the document in case you have some special needs or the auto
+detection for some reason fails. It will then override the auto detection
+mechanism.
 
 The variables, "Groff_Output_Device", "Groff_Paper_Format", "Groff_Encoding"
 and "Groff_Cmd", may also be changed on the fly from within the editor.
@@ -165,10 +175,8 @@ to see what it is if you're in doubt.
 
 - <ctrl>-ci will apply some text attribute to the current word or a block of
             marked text. The available attributes are: font face, bold,
-            italic, font size, color and quote. Calling the function on an
-            already marked up word will remove the attribute. If color is
-            chosen, a pop up selection window with all the defined groff
-            colors is shown.
+            italic, font size, color and quote. If color is chosen, a pop up
+            selection window with all the defined groff colors is shown.
 
 - <ctrl>-cO will show a one-line menu in the message area whence you may
             change the settings for output device, input encoding, paper
