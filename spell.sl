@@ -10,7 +10,7 @@
 %% Author: Morten Bo Johansen <mortenbo at hotmail dot com>
 %% Licence: GPL, version 2 or later.
 %%
-%% Version: 0.9.4.6, 2026-04-21
+%% Version: 0.9.4.7, 2026-07-29
 %%
 %}}}
 %{{{ Requires
@@ -604,7 +604,7 @@ private define spell_auto_replace_word (fun)
   word = spell_get_word ();
 
   ifnot (strlen (word)) return;
-  ifnot (search_file(Spell_Replacement_Wordlist, "^$word *:"$, 1)) return;
+  ifnot (search_file(Spell_Replacement_Wordlist, "^\\<$word\\>:"$, 1)) return;
 
   repl_word = ();
   repl_word = strtrim(strchop(repl_word, ':', 0))[1];
@@ -698,55 +698,6 @@ define spell_remove_word_highligtning()
   }
 
   call("redraw");
-}
-
-% Initialize the spell process with another spelling dictionary
-define spell_select_dictionary()
-{
-  variable dicts = spell_get_dicts(), dict, spell_dicts;
-
-  if (blocal_var_exists("spell_dict"))
-    Spell_Dict = get_blocal_var("spell_dict");
-
-  ungetkey('\t');
-  Spell_Dict = read_with_completion(dicts, "[Spell] Select dictionary:",
-                                    Spell_Dict, "", 's');
-
-  spell_dicts = strtok(Spell_Dict, ","); % multiple dictionaries may be specified
-
-  foreach dict (spell_dicts)
-  {
-    ifnot (is_list_element(dicts, strtrim(dict), ','))
-      throw RunTimeError, "you set Spell_Dict to \"$Spell_Dict\" but dictionary,"$ +
-      "\"$dict\", is not installed"$;
-  }
-
-  if (blocal_var_exists("spell_dict"))
-    set_blocal_var(Spell_Dict, "spell_dict");
-
-  Spell_Personal_Dict = "${Spell_Dict}.dic"$;
-
-  if (blocal_var_exists("personal_dict"))
-    set_blocal_var(Spell_Personal_Dict, "personal_dict");
-
-  spell_set_cmd(Spell_Dict); % Spell_Cmd is set here
-
-  if (blocal_var_exists("spell_flyspell"))
-  {
-    if (1 == get_blocal_var("spell_flyspell"))
-      spell_start_flyspell_process();
-  }
-
-  % load the corresponding completion file
-  if (Spell_Use_Tabcompletion)
-  {
-    ifnot (is_substr(Spell_Dict, ",")) % do not load w/multiple dictionaries
-      load_tabcompletion ();
-  }
-
-  Spell_Replacement_Wordlist = expand_filename ("~/.spell_repl.$Spell_Dict"$);
-  spell_set_status_line();
-  spell_buffer();
 }
 
 % Spellcheck the whole buffer, without having to save the file associated
@@ -873,6 +824,55 @@ public define spell_buffer()
   call("redraw");
 }
 
+% Initialize the spell process with another spelling dictionary
+define spell_select_dictionary()
+{
+  variable dicts = spell_get_dicts(), dict, spell_dicts;
+
+  if (blocal_var_exists("spell_dict"))
+    Spell_Dict = get_blocal_var("spell_dict");
+
+  ungetkey('\t');
+  Spell_Dict = read_with_completion(dicts, "[Spell] Select dictionary:",
+                                    Spell_Dict, "", 's');
+
+  spell_dicts = strtok(Spell_Dict, ","); % multiple dictionaries may be specified
+
+  foreach dict (spell_dicts)
+  {
+    ifnot (is_list_element(dicts, strtrim(dict), ','))
+      throw RunTimeError, "you set Spell_Dict to \"$Spell_Dict\" but dictionary,"$ +
+      "\"$dict\", is not installed"$;
+  }
+
+  if (blocal_var_exists("spell_dict"))
+    set_blocal_var(Spell_Dict, "spell_dict");
+
+  Spell_Personal_Dict = "${Spell_Dict}.dic"$;
+
+  if (blocal_var_exists("personal_dict"))
+    set_blocal_var(Spell_Personal_Dict, "personal_dict");
+
+  spell_set_cmd(Spell_Dict); % Spell_Cmd is set here
+
+  if (blocal_var_exists("spell_flyspell"))
+  {
+    if (1 == get_blocal_var("spell_flyspell"))
+      spell_start_flyspell_process();
+  }
+
+  % load the corresponding completion file
+  if (Spell_Use_Tabcompletion)
+  {
+    ifnot (is_substr(Spell_Dict, ",")) % do not load w/multiple dictionaries
+      load_tabcompletion ();
+  }
+
+  Spell_Replacement_Wordlist = expand_filename ("~/.spell_repl.$Spell_Dict"$);
+  spell_set_status_line();
+  spell_buffer();
+}
+
 % Go to the next misspelled word. This only works after having spell
 % checked the whole buffer with spell_buffer().
 define spell_goto_misspelled(dir)
@@ -907,6 +907,7 @@ define spell_goto_misspelled(dir)
     while (not (eobp()));
   }
 }
+
 %}}}
 %{{{ Keymap
 private variable Mode = "spell";
