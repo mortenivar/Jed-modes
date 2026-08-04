@@ -2,7 +2,7 @@
 % computer language modes as well as formatting string variables.
 % Author: Morten Bo Johansen, <mortenbo at hotmail dot com>
 % License: GPLv3
-% Version 0.5.1 (2026/08/26)
+% Version 0.5.2 (2026/08/04)
 require("comments");
 require("pcre");
 
@@ -194,11 +194,14 @@ define wrap_paragraph_or_string()
   {
     push_spot();
 
+    variable n = 0;
+    
     if (-1 == wrap_mark_paragraph())
       return pop_spot();
 
     narrow_to_region();
-    bob();
+    pop_spot();
+    while (left(1)) n++; % record editing point
     skip_white();
     indent_pos = _get_point();
     mark_buffer();
@@ -265,12 +268,10 @@ define wrap_paragraph_or_string()
       return str;
     else
     {
-      pop_spot();
       trim();
       insert(str);
       bob();
-      cmt_char_esc = str_quote_string(Cmt_Char_Beg, "\\", '\\');
-      skip_chars("\t $cmt_char_esc"$);
+      () = right(n); % restore editing point
       widen();
     }
   }
