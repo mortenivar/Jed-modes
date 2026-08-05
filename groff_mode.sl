@@ -42,7 +42,7 @@ autoload ("most_exit_most", "most");
 private variable
   Groff_Data_Dir = "",
   Groff = "groff",
-  Version = "0.6.1",
+  Version = "0.6.2",
   Mode = "groff",
   Home = getenv("HOME"),
   Must_Exist_Tmac = "groff/current/tmac/s.tmac",
@@ -533,10 +533,14 @@ define groff_continued_cmt()
   if (looking_at(Cmt_Char_Beg)) % continued comments
   {
     pop_spot();
-    insert("\n");
-    insert_spaces(p);
-    insert(Cmt_Char_Beg);
-    return;
+
+    ifnot (looking_at(Cmt_Char_Beg))
+    {
+      insert("\n");
+      insert_spaces(p);
+      insert(Cmt_Char_Beg);
+      return;
+    }
   }
 
   pop_spot();
