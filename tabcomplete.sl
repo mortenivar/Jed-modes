@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.6 2026/07/27
+% Version 0.9.9.7 2026/10/18
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -499,7 +499,7 @@ private define sort_by_relevancy(str_arr, expr)
   return strs_sorted;
 }
 
-private define re_blooking_at(re)
+define re_blooking_at(re)
 {
   push_spot();
   variable s = line_as_string();
@@ -508,30 +508,33 @@ private define re_blooking_at(re)
   string_match(s, "$re$"$, 1);
 }
 
-% Complete delimiters '"', '[' and '(' so typing one of those characters
+% Complement delimiters '"', '[' and '(' so typing one of those characters
 % becomes "", [] and () with some exceptions.
 private define before_key_hook(fun)
 {
   ifnot (any(LAST_CHAR == ['"','[', '(']))
     return;
 
+  variable chars = " \t\n\\)\\]";
+
   switch (LAST_CHAR)
   { case '"':
-    ifnot (re_blooking_at("[\])a-zA-Z]"))
+    if (re_looking_at("[$chars]"$) &&
+        not re_blooking_at("[-a-zA-Z_$\)\\]|:#!\'\./\\\\]"))
     {
       insert_char('"');
       go_left_1;
     }
   }
   { case '[':
-    ifnot (re_looking_at("[A-Za-z]"))
+    if (re_looking_at("[$chars + \"]"$))
     {
       insert_char(']');
       go_left_1;
     }
   }
   { case '(':
-    ifnot (re_looking_at("[A-Za-z]"))
+    if (re_looking_at("[$chars + \"]"$))
     {
       insert_char(')');
       go_left_1;
@@ -973,11 +976,12 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
 add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
 
 % Return a key (sequence) bound to the "evaluate_cmd" function.
-define get_evaluate_cmd_key()
+private define get_evaluate_cmd_key()
 {
   variable n, key;
-
-  n = which_key("evaluate_cmd");
+  variable fun = "evaluate_cmd";
+  
+  n = which_key(fun);
   if (n == 0) return "^X\e"; % the default from emacs.sl
 
   loop (n)
