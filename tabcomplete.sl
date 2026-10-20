@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.8 2026/10/20
+% Version 0.9.9.9 2026/10/20
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -85,11 +85,12 @@ ifnot (is_defined ("Key_F1"))
 private variable
 Loop_Cond_Kws = ["loop","forever","while","define","if","ifnot","!if",
                  "do","foreach","for","_for","switch"],
-  Completions_File = "",
+  % Completions_File = "",
   mini_hlpfun = NULL,
   hlpfun = NULL,
   F = NULL;
 
+variable Completions_File = "";
 public variable Words;
 %}}}
 %{{{ Private functions
@@ -228,7 +229,7 @@ private define align_delims ()
 {
   variable rval, delim;
 
-  ifnot (isspace(what_char())) return;
+  ifnot (isspace(what_char()) || eobp()) return;
 
   forever
   {
@@ -245,7 +246,8 @@ private define align_delims ()
     else
       return call("backward_delete_char_untabify");
 
-    flush("right and left delimiters balanced");
+    ifnot (MINIBUFFER_ACTIVE)
+      flush("right and left delimiters balanced");
   }
 }
 
@@ -273,14 +275,6 @@ private define get_completion (str, stub)
 %% an array.
 private define make_completions_hash (Completions_File)
 {
-  % In slang_mode, if no completions file, then generate one
-  if ((0 == file_status (Completions_File)) && ("slang" == detect_mode ()))
-  {
-    variable funs = _apropos ("Global", ".", 15);
-    Words = funs[array_sort (funs)];
-    () = write_string_to_file (strjoin (Words, "\n"), Completions_File);
-  }
-
   variable
     include_files,
     inc_lines,
@@ -1000,7 +994,9 @@ define slang_mini_completion()
   variable wordchars = get_blocal_var("Wordchars") + get_blocal_var("Extended_Wordchars");
   variable newl_delim = Newl_Delim;
 
-  make_completions_hash(expand_filename("~/.tabcomplete_slang"));
+  ifnot (any(words == "pop_spot"))
+    make_completions_hash(expand_filename("~/.tabcomplete_slang"));
+
   Wordchars = "-#!$@a-zA-Z0-9_";
   Newl_Delim = "\\n";
   undefinekey(Completion_Key, "Mini_Map");
@@ -1041,7 +1037,13 @@ define init_tabcomplete ()
 
     ifnot (1 == file_status (Completions_File))
     {
-      if (strlen (locale))
+      if ("slang" == detect_mode ())
+      {
+        variable funs = _apropos ("Global", ".", 15);
+        Words = funs[array_sort (funs)];
+        () = write_string_to_file (strjoin (Words, "\n"), Completions_File);
+      }
+      else if (strlen (locale))
       {
         Completions_File = expand_filename (sprintf ("~/.tabcomplete_%s", locale));
 
