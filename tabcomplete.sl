@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.7 2026/10/18
+% Version 0.9.9.8 2026/10/20
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -997,12 +997,11 @@ define slang_mini_completion()
   variable fun;
   variable words = get_blocal_var ("Words"); % completion target words from calling buffer
   variable f = get_blocal_var ("F"); % associated fields to completion target words
-  variable buf = whatbuf();
   variable wordchars = get_blocal_var("Wordchars") + get_blocal_var("Extended_Wordchars");
   variable newl_delim = Newl_Delim;
 
   make_completions_hash(expand_filename("~/.tabcomplete_slang"));
-  Wordchars = "-a-zA-Z0-9!#;@_$";
+  Wordchars = "-#!$@a-zA-Z0-9_";
   Newl_Delim = "\\n";
   undefinekey(Completion_Key, "Mini_Map");
   definekey("tabcomplete", Completion_Key, "Mini_Map");
@@ -1014,7 +1013,7 @@ define slang_mini_completion()
   try
   {
     fun = read_mini("S-Lang>", "", "");
-    eval(fun);
+    eval("_auto_declare = 1; $fun"$);
   }
   finally
   {
