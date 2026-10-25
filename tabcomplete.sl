@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 1.1 2026/10/24
+% Version 1.1.1 2026/10/25
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -680,7 +680,7 @@ define tabcomplete ()
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
   if (strlen(stub))
   {
-    ifnot (any(looking_at_char([' ','\t','\n',')',']','}',';','\0'])))
+    ifnot (any(looking_at_char([' ','\t','\n',')',']','}',';',',','\0'])))
       return indent_region_or_line();
   }
   else
