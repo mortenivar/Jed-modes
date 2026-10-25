@@ -12,6 +12,16 @@ with the editing point upon completion. Using the single character, '@'
 after a target word, means that it is an alias (see 3.1.). Thus, you can
 create the equivalent of simple boilerplate snippets.
 
+The syntax that follows an alias may contain slang code to be executed upon
+completion if the syntax if prefixed with the '&' character.
+
+A poor man's "dynamic abrreviations" feature is also supported, which means
+that all words contained in the buffer are added to the list of completion
+targets and the list is being dynamically updated with the words you type
+in. This means that you may have completion from a file and from words in
+the buffer tied to one and the same key.
+
+
                 2. NAME AND LOCATION OF THE COMPLETIONS FILE
 
 The name and location of the file holding the target words for completion
@@ -111,7 +121,7 @@ the function that may be shown in the message area upon completion.
 
 A line may also look like this:
 
-  .gcolor :: &groff_get_color_names(1) :: Set (glyph) drawing color
+  color@ :: &groff_get_color_names(1) :: Set (glyph) drawing color
 
 Here the second field, "&groff_get_color_names(1)", is a S-Lang function to
 be executed upon completion, which is implied by prefixing the function name
@@ -234,9 +244,9 @@ aliases and syntax.
 
   variable Tabcomplete_Use_Help = 1;
 
-This variable controls whether to use the native help interface or not.
-If you use the julia mode, you should set this to '0' as julia.sl defines
-its own help interface.
+This variable controls whether to use the native help interface or not. If
+you use the julia mode or the python mode, you should set this to '0' as
+these modes define their own help interfaces.
 
   variable Use_Completion_Menu = 0;
 
@@ -260,9 +270,11 @@ one key (sequence) bound to invoking the prompt, it may not detect the one
 you're actually using. In that case, check those key bindings and remove the
 one(s) you're not using. Also note that if you invoke the S-Lang cli prompt
 from the menu, then completion won't be available, you must invoke it
-directly from the keyboard.
+directly from the keyboard. When you check the keybinding for invoking the
+S-Lang prompt with "<ctrl>-h k", it must return "slang_mini_completion" and
+not "evaluate_cmd".
 
-  variable Minimum_Completion_Word_Size = 2;
+  variable Minimum_Completion_Word_Size = 1;
 
 This variable controls the minimum size for words that are candidates for
 completion. If completion is from a generic word list such as a list that
