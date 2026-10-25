@@ -100,6 +100,7 @@ ifnot (keymap_p ($1)) make_keymap ($1);
 
 definekey_reserved("py_goto_next_or_prev_error_entry\(-1\)", Key_Up, $1);
 definekey_reserved("py_goto_next_or_prev_error_entry\(1\)", Key_Down, $1);
+undefinekey(Key_F1, $1);
 definekey("py_help", Key_F1, $1);
 definekey_reserved ("py_shift_right", ">", $1);
 definekey_reserved ("py_shift_left", "<", $1);
@@ -926,6 +927,7 @@ private define setup_dfa_callback (name)
   dfa_define_highlight_rule("[\\(\\[{}\\]\\),:\\.\"`'=;]", "delimiter", name);
   dfa_define_highlight_rule("[\\+\\-\\*/%<>&\\|\\^~]", "operator", name); % 1 char
   dfa_define_highlight_rule("<<|>>|==|<=|>=|<>|!=", "operator", name);    % 2 char
+  dfa_define_highlight_rule("\\.\\.\\.", "operator", name); % Ellipsis
   
   % Flag badly formed numeric literals or identifiers.  This is more effective
   % if you change the error colors so they stand out.
@@ -1044,6 +1046,7 @@ define python_mode ()
   set_buffer_hook ("indent_hook", "py_indent_line");
   set_buffer_hook ("newline_indent_hook", "py_newline_and_indent");
   use_syntax_table ($1);
+  use_dfa_syntax(1);
   wrap_mode();
   run_mode_hooks ("python_mode_hook");
 }
