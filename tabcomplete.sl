@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 0.9.9.9 2026/10/20
+% Version 1.1 2026/10/24
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -40,7 +40,7 @@ custom_variable ("Completion_Key", "\t");
 custom_variable ("Wordchars", "\\w");
 
 % What other characters may constitute a word?
-custom_variable ("Extended_Wordchars", "");
+custom_variable ("Extended_Wordchars", "-_");
 
 % Insert completion word itself or not
 custom_variable ("Insert_Completion_Word", 1);
@@ -123,7 +123,7 @@ private define re_line_match (pat, trim)
   pop_spot ();
 }
 
-define indent_region_or_line()
+private define indent_region_or_line()
 {
   variable reg_endline, i = 1;
 
@@ -157,10 +157,10 @@ private define detect_mode ()
 % Return the word under or before the cursor.
 private define get_word ()
 {
-  variable wchars = Wordchars + Extended_Wordchars;
+  variable wchars = Extended_Wordchars + Wordchars;
 
   if (blocal_var_exists("Wordchars") && blocal_var_exists("Extended_Wordchars"))
-    wchars = get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars");
+    wchars = get_blocal_var ("Wchars");
 
   push_spot ();
   bskip_chars (wchars); push_mark (); skip_chars (wchars);
@@ -169,7 +169,7 @@ private define get_word ()
 }
 
 % Return a key press as a string
-define get_keystr (delay)
+private define get_keystr (delay)
 {
   variable s = char (getkey());
 
@@ -502,6 +502,14 @@ define re_blooking_at(re)
   string_match(s, "$re$"$, 1);
 }
 
+private variable Added_Words = {};
+
+private define add_word_to_list()
+{
+  variable word = get_word();
+  list_append(Added_Words, word);
+}
+
 % Complement delimiters '"', '[' and '(' so typing one of those characters
 % becomes "", [] and () with some exceptions.
 private define before_key_hook(fun)
@@ -509,26 +517,26 @@ private define before_key_hook(fun)
   ifnot (any(LAST_CHAR == ['"','[', '(']))
     return;
 
-  variable chars = " \t\n\\)\\]";
+  variable chars = [' ', '\t','\n',')',']',';',',','\0'];
 
   switch (LAST_CHAR)
   { case '"':
-    if (re_looking_at("[$chars]"$) &&
-        not re_blooking_at("[-a-zA-Z_$\)\\]|:#!\'\./\\\\]"))
+    if (any(looking_at_char(chars)) &&
+        not re_blooking_at("[-a-zA-Z_$)\\]|:;#!\'\./\\\\]"))
     {
       insert_char('"');
       go_left_1;
     }
   }
   { case '[':
-    if (re_looking_at("[$chars + \"]"$))
+    if (any(looking_at_char([chars, '"'])))
     {
       insert_char(']');
       go_left_1;
     }
   }
   { case '(':
-    if (re_looking_at("[$chars + \"]"$))
+    if (any(looking_at_char([chars, '"'])))
     {
       insert_char(')');
       go_left_1;
@@ -536,6 +544,98 @@ private define before_key_hook(fun)
   }
 }
 
+private define add_word_to_list_hook(fun)
+{
+  % Adding word is triggered by <return> or <space> keys
+  if (is_substr(" \r", LASTKEY))
+    add_word_to_list();
+}
+
+private define sort_unique(a)
+{
+  variable A = Assoc_Type[String_Type], i = "";
+
+  foreach i (a)
+    A[i] = i;
+
+  a = assoc_get_keys(A);
+  return a[array_sort(a)];
+}
+
+% Return a key (sequence) bound to the "evaluate_cmd" function.
+private define get_evaluate_cmd_key()
+{
+  variable n, key;
+  variable fun = "evaluate_cmd";
+  
+  n = which_key(fun);
+  if (n == 0) return "^X\e"; % the default from emacs.sl
+
+  loop (n)
+    key = ();
+
+  return key;
+}
+
+private define add_words_in_buffer_to_completions()
+{
+  if (eobp() && bobp()) return;
+
+  variable wchars, words, str = "";
+
+  if (blocal_var_exists("Wchars"))
+    wchars = get_blocal_var("Wchars");
+  else
+    wchars = "-\\w_";
+  
+  push_spot_bob(); push_mark_eob(); str = bufsubstr(); pop_spot();
+  words = strtok(strtrans(str, "^$wchars"$, " "));
+  words = strtrim(words);
+  Words = [Words, words];
+
+  if (blocal_var_exists("Words"))
+    set_blocal_var(Words, "Words");
+}
+
+private variable Wordchars_Old = get_word_chars ();
+
+% This ensures that characters that define a word is local to the
+% buffer and that the arrays of words to complete from are also
+% local to the buffer.
+private define tabcomplete_switch_buffer_hook (old_buffer)
+{
+  if (blocal_var_exists("Compl_Delims"))
+  {
+    if (1 == get_blocal_var("Compl_Delims"))
+      append_to_hook("_jed_before_key_hooks", &before_key_hook);
+  }
+  else
+  {
+    remove_from_hook("_jed_before_key_hooks", &before_key_hook);
+    remove_from_hook("_jed_before_key_hooks", &add_word_to_list_hook);
+  }
+  
+  if (blocal_var_exists ("Completions_File"))
+    Completions_File = get_blocal_var ("Completions_File");
+
+  if (blocal_var_exists("Newl_Delim"))
+    Newl_Delim = get_blocal_var("Newl_Delim");
+
+  if (blocal_var_exists ("Use_Completion_Menu"))
+    Use_Completion_Menu = get_blocal_var ("Use_Completion_Menu");
+
+  if (blocal_var_exists ("Wchars"))
+    define_word (get_blocal_var("Wchars"));
+  else
+    define_word (Wordchars_Old);
+
+  if (blocal_var_exists ("Words"))
+    Words = get_blocal_var ("Words");
+
+  if (blocal_var_exists ("F"))
+    F = get_blocal_var ("F");
+}
+add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
 %}}}
 %{{{ Menu
 % A menu addition to the "System" menu pop up.
@@ -568,7 +668,7 @@ define tabcomplete ()
     j = 0;
 
   % balance [], (), {}
-  if ((blooking_at(")")) || (blooking_at("]")) || (blooking_at("}")))
+  if (re_blooking_at("[)\\]}]"))
     return align_delims();
 
   if (is_visible_mark())
@@ -578,10 +678,9 @@ define tabcomplete ()
   if (looking_at(" =")) return skip_chars(" =");
 
   stub = strtrim (get_word ()); % "stub" is the word before the editing point to be completed
-
   if (strlen(stub))
   {
-    ifnot (re_looking_at("[ \t\n,\)]") || eobp())
+    ifnot (any(looking_at_char([' ','\t','\n',')',']','}',';','\0'])))
       return indent_region_or_line();
   }
   else
@@ -603,6 +702,18 @@ define tabcomplete ()
   % included later.
   completion_words = completion_words[j];
 
+  variable added_words, matches, words_from_file;
+    
+  % Add completion targets from the list of dynamically added words.
+  if (length(Added_Words))
+  {
+    added_words = list_to_array(Added_Words);
+    matches = added_words[where(0 == strnbytecmp(added_words, stub, strbytelen(stub)))];
+
+    if (length(matches))
+      completion_words = [completion_words, matches];
+  }
+  
   % only return words of sizes greater than or equal to $Minimum_Completion_Word_Size
   completion_words = completion_words[where(array_map(Int_Type, &strlen,
                                                       completion_words) >=
@@ -617,12 +728,13 @@ define tabcomplete ()
   % first completion right away. With a hash that contains both single
   % words as completion targets and completion targets with syntaxes
   % stub will always be a completion target.
-  ifnot (length (F))
+  if (F == NULL)
     completion_words = completion_words [wherenot (completion_words == stub)];
+
+  completion_words = sort_unique(completion_words);
 
   % get all possible completions
   completions = array_map (String_Type, &get_completion, completion_words, stub);
-  completions = completions[array_sort(completions, &cmp_fun)];
 
   % This pops up a buffer with a menu of all completion candidates if
   % the custom variable, Use_Completion_Menu = 1
@@ -723,7 +835,7 @@ define tabcomplete ()
 
   try
   {
-    if (length (F))
+    if (F != NULL)
     {
       if (length (F[Completed_Word]) > 0)
         syntax = F[Completed_Word][0];
@@ -847,10 +959,12 @@ define compl_apropos ()
     hlp = "",
     expr = "";
 
-  ifnot (any (array_map (Int_Type, &length, values) > 1))
-    throw RunTimeError, "$Completions_File contains no help or apropos messages"$;
-
   if ("slang" == detect_mode ()) return apropos;
+
+  ifnot (any (array_map (Int_Type, &length, values) > 1))
+  {
+    throw RunTimeError, "$Completions_File contains no help or apropos messages"$;
+  }
   else expr = read_mini ("Apropos:", "", "");
 
   variable key, val;
@@ -908,7 +1022,9 @@ define select_completions_file ()
 
   F = Assoc_Type[Array_Type, String_Type[0]];  % purge the old hash
   init_tabcomplete (Completions_File);
-  Words = get_blocal_var ("Words");
+
+  if (blocal_var_exists("Words"))
+    Words = get_blocal_var ("Words");
 }
 
 % Add a word to completions file
@@ -940,64 +1056,25 @@ define append_word_to_completions_file ()
   }
 }
 
-private variable Wordchars_Old = get_word_chars ();
-
-% This ensures that characters that define a word is local to the
-% buffer and that the arrays of words to complete from are also
-% local to the buffer.
-private define tabcomplete_switch_buffer_hook (old_buffer)
-{
-  if (blocal_var_exists ("Completions_File"))
-    Completions_File = get_blocal_var ("Completions_File");
-
-  if (blocal_var_exists("Newl_Delim"))
-    Newl_Delim = get_blocal_var("Newl_Delim");
-
-  if (blocal_var_exists ("Use_Completion_Menu"))
-    Use_Completion_Menu = get_blocal_var ("Use_Completion_Menu");
-
-  if (blocal_var_exists ("Wordchars") && blocal_var_exists ("Extended_Wordchars"))
-    define_word (get_blocal_var ("Extended_Wordchars") + get_blocal_var ("Wordchars"));
-  else
-    define_word (Wordchars_Old);
-
-  if (blocal_var_exists ("Words"))
-    Words = get_blocal_var ("Words");
-
-  if (blocal_var_exists ("F"))
-    F = get_blocal_var ("F");
-}
-add_to_hook ("_jed_switch_active_buffer_hooks", &tabcomplete_switch_buffer_hook);
-
-% Return a key (sequence) bound to the "evaluate_cmd" function.
-private define get_evaluate_cmd_key()
-{
-  variable n, key;
-  variable fun = "evaluate_cmd";
-  
-  n = which_key(fun);
-  if (n == 0) return "^X\e"; % the default from emacs.sl
-
-  loop (n)
-    key = ();
-
-  return key;
-}
-
 % This is a stand-in for the S-Lang> cli prompt to allow for
 % SLang/Jed completions at said prompt.
 define slang_mini_completion()
 {
-  variable fun;
-  variable words = get_blocal_var ("Words"); % completion target words from calling buffer
-  variable f = get_blocal_var ("F"); % associated fields to completion target words
-  variable wordchars = get_blocal_var("Wordchars") + get_blocal_var("Extended_Wordchars");
+  variable f, fun, words, wchars;
   variable newl_delim = Newl_Delim;
 
-  ifnot (any(words == "pop_spot"))
+  if (blocal_var_exists("F"))
+    get_blocal_var ("F"); % associated fields to completion target words
+
+  if (blocal_var_exists("Words"))
+    words = get_blocal_var ("Words"); % completion target words from calling buffer
+
+  if (blocal_var_exists("Wchars"))
+    wchars = get_blocal_var ("Wchars"); % completion target words from calling buffer
+
+  ifnot (any(words == "pop_spot")) % this should be fairly unique to the slang hash
     make_completions_hash(expand_filename("~/.tabcomplete_slang"));
 
-  Wordchars = "-#!$@a-zA-Z0-9_";
   Newl_Delim = "\\n";
   undefinekey(Completion_Key, "Mini_Map");
   definekey("tabcomplete", Completion_Key, "Mini_Map");
@@ -1008,6 +1085,7 @@ define slang_mini_completion()
 
   try
   {
+    Extended_Wordchars = "-#!$@_";
     fun = read_mini("S-Lang>", "", "");
     eval("_auto_declare = 1; $fun"$);
   }
@@ -1015,12 +1093,14 @@ define slang_mini_completion()
   {
     Words = words; % reset completion target words to those of calling buffer
     F = f; % ditto with their associated fields
-    Wordchars = wordchars;
     Newl_Delim = newl_delim;
 
     % make sure that alt-x completions work again.
     undefinekey(Completion_Key, "Mini_Map");
     definekey("mini_complete", Completion_Key, "Mini_Map");
+
+    if (blocal_var_exists("Wchars"))
+      set_blocal_var(wchars, "Wchars");
   }
 }
 
@@ -1064,10 +1144,10 @@ define init_tabcomplete ()
   }
 
   define_blocal_var ("Completions_File", Completions_File);
-  define_blocal_var ("Wordchars", Wordchars);
-  define_blocal_var ("Extended_Wordchars", Extended_Wordchars + "@"); % "@" so aliases always work
+  define_blocal_var ("Wchars", Extended_Wordchars + get_word_chars());
   define_blocal_var ("Use_Completion_Menu", Use_Completion_Menu);
   define_blocal_var ("Newl_Delim", Newl_Delim);
+  define_blocal_var ("Compl_Delims", Tabcomplete_Compl_Delims);
 
   % show help or mini help from function in hyperhelp from jedmodes
 #ifexists help->get_mini_help
@@ -1083,10 +1163,15 @@ define init_tabcomplete ()
   % In the same jed session, don't hash again if no change in
   % completions file when opening a new buffer.
   ifnot (any (Completions_File == Completions_Files))
+  {
     make_completions_hash (Completions_File);
+  }
 
   define_blocal_var ("Words", Words);
   define_blocal_var ("F", F);
+
+  add_words_in_buffer_to_completions();
+  append_to_hook("_jed_before_key_hooks", &add_word_to_list_hook);
 
   Completions_Files = [Completions_Files, Completions_File];
 
@@ -1110,9 +1195,6 @@ define init_tabcomplete ()
     local_setkey("show_hlp_for_word_at_point", Key_F1);
     local_setkey("compl_apropos", Key_F2);
   }
-
-  if (Tabcomplete_Compl_Delims)
-    append_to_hook("_jed_before_key_hooks", &before_key_hook);
 
   if (SLang_Completion_In_Minibuffer)
   {
