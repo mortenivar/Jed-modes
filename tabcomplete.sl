@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 1.1.1 2026/10/25
+% Version 1.1.2 2026/10/25
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -1064,7 +1064,7 @@ define slang_mini_completion()
   variable newl_delim = Newl_Delim;
 
   if (blocal_var_exists("F"))
-    get_blocal_var ("F"); % associated fields to completion target words
+    f = get_blocal_var ("F"); % associated fields to completion target words
 
   if (blocal_var_exists("Words"))
     words = get_blocal_var ("Words"); % completion target words from calling buffer
