@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 1.1.3 2026/11/01
+% Version 1.1.4 2026/11/01
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -513,7 +513,18 @@ private define add_word_to_list()
 private define compl_delim_hook(fun)
 {
   if (Tabcomplete_Compl_Delims == 0) return;
-  
+
+  if (LAST_CHAR == '') % delete in pairs
+  {
+    if ((looking_at("\"") && blooking_at("\""))
+        || (looking_at("\'") && blooking_at("\'"))
+        || (looking_at("]") && blooking_at("["))
+        || (looking_at(")") && blooking_at("(")))
+    {
+      del();
+    }
+  }
+
   ifnot (any(LAST_CHAR == ['\'','"','[', '(']))
     return;
 
@@ -538,6 +549,15 @@ private define compl_delim_hook(fun)
   switch (LAST_CHAR)
   { case '"' || case '\'':
 
+    if ("python" == detect_mode ()) % python docstring
+    {
+      if (blooking_at("\"\""))
+      {
+        insert("\"\"\"\"");
+        () = left(4);
+      }
+    }
+    
     if (any(looking_at_char(chars)) &&
         not re_blooking_at("[-a-zA-Z_$)\\]|:;#!\./\\\\]"))
     {
@@ -559,7 +579,7 @@ private define compl_delim_hook(fun)
       go_left_1;
     }
   }
-  
+
   return 0;
 }
 
