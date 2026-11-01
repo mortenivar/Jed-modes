@@ -3,7 +3,7 @@
 % tabcomplete.sl -- a word or "snippet" completion function with an
 % additional possible help, mini help and apropos interface.
 %
-% Version 1.1.2 2026/10/25
+% Version 1.1.3 2026/11/01
 %
 % Author : Morten Bo Johansen <mortenbo at hotmail dot com>
 % License: http://www.fsf.org/copyleft/gpl.html
@@ -83,9 +83,8 @@ ifnot (is_defined ("Key_F1"))
 %}}}
 %{{{ Variables
 private variable
-Loop_Cond_Kws = ["loop","forever","while","define","if","ifnot","!if",
+  Loop_Cond_Kws = ["loop","forever","while","define","if","ifnot","!if",
                  "do","foreach","for","_for","switch"],
-  % Completions_File = "",
   mini_hlpfun = NULL,
   hlpfun = NULL,
   F = NULL;
@@ -493,7 +492,7 @@ private define sort_by_relevancy(str_arr, expr)
   return strs_sorted;
 }
 
-define re_blooking_at(re)
+private define re_blooking_at(re)
 {
   push_spot();
   variable s = line_as_string();
@@ -510,38 +509,58 @@ private define add_word_to_list()
   list_append(Added_Words, word);
 }
 
-% Complement delimiters '"', '[' and '(' so typing one of those characters
-% becomes "", [] and () with some exceptions.
-private define before_key_hook(fun)
+% Complement delimiters or envelop a marked region in delimiters.
+private define compl_delim_hook(fun)
 {
-  ifnot (any(LAST_CHAR == ['"','[', '(']))
+  if (Tabcomplete_Compl_Delims == 0) return;
+  
+  ifnot (any(LAST_CHAR == ['\'','"','[', '(']))
     return;
+
+  if (markp())
+  {
+    variable close_delim;
+
+    switch (LAST_CHAR)
+    { case '\'': close_delim = '\''; }
+    { case '"': close_delim = '"'; }
+    { case '[': close_delim = ']'; }
+    { case '(': close_delim = ')'; }
+
+    check_region(0); 
+    insert_char(close_delim);
+    pop_mark_1();
+    return 1;
+  }
 
   variable chars = [' ', '\t','\n',')',']',';',',','\0'];
 
   switch (LAST_CHAR)
-  { case '"':
+  { case '"' || case '\'':
+
     if (any(looking_at_char(chars)) &&
-        not re_blooking_at("[-a-zA-Z_$)\\]|:;#!\'\./\\\\]"))
+        not re_blooking_at("[-a-zA-Z_$)\\]|:;#!\./\\\\]"))
     {
-      insert_char('"');
+      insert_char(LAST_CHAR);
       go_left_1;
     }
   }
   { case '[':
-    if (any(looking_at_char([chars, '"'])))
+    if (any(looking_at_char([chars, '"'])) && not blooking_at("\'"))
     {
       insert_char(']');
       go_left_1;
     }
   }
   { case '(':
-    if (any(looking_at_char([chars, '"'])))
+    if (any(looking_at_char([chars, '"'])) && not blooking_at("\'"))
     {
       insert_char(')');
       go_left_1;
     }
   }
+  
+  return 0;
 }
 
 private define add_word_to_list_hook(fun)
@@ -607,11 +626,11 @@ private define tabcomplete_switch_buffer_hook (old_buffer)
   if (blocal_var_exists("Compl_Delims"))
   {
     if (1 == get_blocal_var("Compl_Delims"))
-      append_to_hook("_jed_before_key_hooks", &before_key_hook);
+      append_to_hook("_jed_before_key_hooks", &compl_delim_hook);
   }
   else
   {
-    remove_from_hook("_jed_before_key_hooks", &before_key_hook);
+    remove_from_hook("_jed_before_key_hooks", &compl_delim_hook);
     remove_from_hook("_jed_before_key_hooks", &add_word_to_list_hook);
   }
   
@@ -673,7 +692,7 @@ define tabcomplete ()
 
   if (is_visible_mark())
     return indent_region_or_line();
- 
+  
   if (looking_at("\",")) return skip_chars("\",");
   if (looking_at(" =")) return skip_chars(" =");
 
@@ -703,7 +722,7 @@ define tabcomplete ()
   completion_words = completion_words[j];
 
   variable added_words, matches, words_from_file;
-    
+  
   % Add completion targets from the list of dynamically added words.
   if (length(Added_Words))
   {
