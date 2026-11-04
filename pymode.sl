@@ -1,5 +1,5 @@
 % Python mode
-% File: pymode.sl v1.5.0
+% File: pymode.sl v1.5.1
 %
 % For editing source code written in the Python programming language.
 % Provides basic compatibility with Python mode under real Emacs
@@ -132,14 +132,30 @@ private define py_whitespace(cnt)
 private define py_indent_after_chars()
 {
   eol();
-  if (bfind_char(':') || bfind_char('{') || bfind_char('[') || bfind_char('(')) 
+
+  forever 
   {
-    go_right(1);
-    skip_white();
-    if (eolp() or looking_at_char('#'))
-      return 1;
+    if (bfind_char(':') || bfind_char('{') || bfind_char('[') || bfind_char('('))
+    {
+      if (0 != parse_to_point())
+      {
+        go_left_1();
+        continue;
+      }
+      else
+      {
+        go_right_1();
+        skip_white();
+
+        if (looking_at_char('#') || eolp())
+          return 1;
+        else
+          return 0;
+      }
+    }
+
+    return 0;
   }
-  return 0;
 }
 
 private define py_is_closing_delim()
@@ -165,6 +181,7 @@ private define py_line_starts_subblock()
   if (looking_at("else") or
       looking_at("elif")  or
       looking_at("except")  or
+      looking_at("case")  or
       looking_at("finally"))
     return 1;
   return 0;
@@ -210,10 +227,7 @@ private define py_indent_calculate()
   % go to previous non blank line
   bol ();
   ifnot (re_bsearch ("[^ \t\n]"))
-  {
-    pop_spot();
     return 0;
-  }
 
   bol_skip_white();
   col = what_column() - 1;
@@ -227,7 +241,7 @@ private define py_indent_calculate()
   
   if (py_indent_after_chars())
     col += indent;
-  if (py_endblock_cmd() or (subblock and not py_line_starts_block()))
+  else if (py_endblock_cmd() or (subblock and not py_line_starts_block()))
     col -= indent;
 
   return col;
@@ -1038,7 +1052,6 @@ define python_mode ()
   pop_spot();
   
   set_mode ($1, 0x4); % flag value of 4 is generic language mode
-  use_keymap($1);
   py_add_kws_to_table(Kws, $1, 0);
   py_add_kws_to_table(Builtins, $1, 1);
   py_add_kws_to_table(Methods, $1, 1);
@@ -1048,5 +1061,11 @@ define python_mode ()
   use_syntax_table ($1);
   use_dfa_syntax(1);
   wrap_mode();
+  use_keymap($1);
   run_mode_hooks ("python_mode_hook");
 }
+
+
+
+
+  
